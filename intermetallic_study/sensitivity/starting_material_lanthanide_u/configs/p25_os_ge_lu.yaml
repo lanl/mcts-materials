@@ -24,6 +24,6 @@ intermetallic:
   rollout_method: ehull_rdos_product
   beta: 1.0
   gamma: 1.0
-  doscar_data_path: doscar_peaks_data_with_U_with_missing.csv
+  doscar_data_path: doscar_peaks_data_with_U_complete.csv
   cache_path: high_throughput_mace_results.full.csv
   mp_api_key: <use existing>
