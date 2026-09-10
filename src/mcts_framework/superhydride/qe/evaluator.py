@@ -168,7 +168,7 @@ class QuantumEspressoEvaluator(PropertyEvaluator):
             logger.debug("QE cache hit for %s", formula)
             return {**cached, "h_f": h_f, "formula": formula}
 
-        workdir = self.work_root / _safe_dirname(formula)
+        workdir = self.work_root / _safe_dirname(material.get_identifier())
         try:
             result = run_ground_state(
                 material.atoms,
