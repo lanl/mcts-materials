@@ -29,6 +29,7 @@ from mcts_framework.postprocessing import (
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _study_figures import (  # noqa: E402
     SYNTHESIZED_COMPOUNDS,
+    ATTEMPTED_UNSUCCESSFUL_COMPOUNDS,
     u_only_filter,
     write_txt_table,
 )
@@ -129,6 +130,7 @@ def main():
             space_filter=u_only_filter,
             synthesized=SYNTHESIZED_COMPOUNDS,
             attempted_path=str(attempted_path) if attempted_path.exists() else None,
+            attempted_unsuccessful=ATTEMPTED_UNSUCCESSFUL_COMPOUNDS,
             ymax=1.5,
         )
     except Exception as e:

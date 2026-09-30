@@ -39,3 +39,4 @@ reference/sensitivity_studies/results/**/*.json
 # Any files with "secret" or "key" in the name
 *secret*
 *key*.txt
+archive/

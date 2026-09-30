@@ -41,7 +41,27 @@ _LANTHANIDES = {
 }
 
 # Experimentally-synthesized U-only compounds (dash form), for the U-only figure.
-SYNTHESIZED_COMPOUNDS = ["U-Sn-V", "U-Sn-Nb", "U-Ge-Cr", "U-Ge-Co"]
+SYNTHESIZED_COMPOUNDS = ["Sn-U-V", "Cr-Ge-U", "Co-Ge-U", "Nb-Sn-U"]
+
+# Attempted but unsuccessfully synthesized U-only compounds (dash form).
+ATTEMPTED_UNSUCCESSFUL_COMPOUNDS = [
+    "Ge-Ti-U", "Sn-Ti-U", "Ge-U-V", "Ge-Mn-U", "Mn-Sn-U", "Fe-Sn-U",
+    "Ge-Ni-U", "Ni-Sn-U", "Cu-Ge-U", "Cu-Sn-U", "Pd-Sn-U", "Ag-Sn-U",
+    "Hf-Si-U", "Ge-Hf-U", "Sn-Ta-U", "Ge-Nb-U", "Co-Sn-U",
+]
+
+# Experimental literature lanthanide compounds (dash form).
+EXPERIMENTAL_LANTHANIDE_COMPOUNDS = [
+    "Co-Dy-Ge", "Co-Er-Ge", "Co-Gd-Ge", "Co-Ge-Ho", "Co-Ge-Lu", "Co-Ge-Tb",
+    "Cr-Dy-Ge", "Cr-Er-Ge", "Cr-Gd-Ge", "Cr-Ge-Ho", "Cr-Ge-Tb", "Cr-Ge-Tm",
+    "Er-Fe-Ge", "Fe-Ge-Lu", "Fe-Ge-Tm", "Fe-Lu-Sn", "Fe-Sn-Tm",
+    "Dy-Ge-Mn", "Er-Ge-Mn", "Gd-Ge-Mn", "Ge-Ho-Mn", "Ge-Lu-Mn", "Ge-Mn-Nd",
+    "Ge-Mn-Sm", "Ge-Mn-Tb", "Ge-Mn-Tm", "Dy-Mn-Sn", "Er-Mn-Sn", "Gd-Mn-Sn",
+    "Ho-Mn-Sn", "Lu-Mn-Sn", "Mn-Sn-Tb", "Mn-Sn-Tm", "Dy-Nb-Sn", "Er-Nb-Sn",
+    "Gd-Nb-Sn", "Ho-Nb-Sn", "Lu-Nb-Sn", "Nb-Nd-Sn", "Nb-Sm-Sn", "Nb-Sn-Tb",
+    "Nb-Sn-Tm", "Dy-Sn-V", "Er-Sn-V", "Gd-Sn-V", "Ho-Sn-V", "Lu-Sn-V",
+    "Sn-Tb-V", "Sn-Tm-V",
+]
 
 
 # --- Study matching keys / filters (kept out of the library) -------------

@@ -96,21 +96,13 @@ def _radial_layout(graph, root, radius_step: float = 4.0) -> Dict[Any, tuple]:
 
 def _spread_nodes(pos, root, min_dist: float = 5.5, max_iters: int = 600):
     """
-    Push overlapping nodes apart while preserving each node's radius from root.
+    Push overlapping nodes apart without radial constraint.
 
-    Iterative relaxation: nodes closer than min_dist repel along their
-    connecting axis, then every node is renormalized back to its original
-    radius so the radial/depth structure is preserved. Deterministic (fixed
-    iteration order over sorted nodes).
+    Iterative relaxation: nodes closer than min_dist repel freely along their
+    connecting axis. No constraint to preserve radius, allowing nodes to
+    spread naturally to avoid overlaps.
     """
     pos = {k: list(v) for k, v in pos.items()}
-    original_radii = {}
-    for k, v in pos.items():
-        if k == root:
-            continue
-        r = math.sqrt(v[0] ** 2 + v[1] ** 2)
-        original_radii[k] = r if r > 1e-9 else min_dist
-
     movable = sorted(n for n in pos if n != root)
 
     for _ in range(max_iters):
@@ -133,14 +125,6 @@ def _spread_nodes(pos, root, min_dist: float = 5.5, max_iters: int = 600):
                 pos[n2][0] += push * ux
                 pos[n2][1] += push * uy
                 moved = True
-
-        for n in movable:
-            r_orig = original_radii[n]
-            x, y = pos[n]
-            r_curr = math.sqrt(x * x + y * y)
-            if r_curr > 1e-9:
-                pos[n][0] = x * r_orig / r_curr
-                pos[n][1] = y * r_orig / r_curr
 
         if not moved:
             break
@@ -208,10 +192,20 @@ def _build_graph(
             score_by_method(rollout_method, e_hull, r_dos, beta, gamma)
             if e_hull is not None else None
         )
+        r_ehull_val = ehull_reward(e_hull) if e_hull is not None else None
+        # Compute exp(r_ehull) for panel (b)
+        exp_r_ehull = np.exp(r_ehull_val) if r_ehull_val is not None else None
+        # Compute exp(r_ehull) × r_DOS product reward
+        exp_product_reward = (
+            exp_r_ehull * r_dos
+            if exp_r_ehull is not None and r_dos is not None else None
+        )
         graph.add_node(
             key, identifier=key, visits=v["visits"], e_hull=e_hull,
             r_dos=r_dos, reward=reward,
             r_ehull=(ehull_reward(e_hull) if e_hull is not None else None),
+            exp_r_ehull=exp_r_ehull,
+            exp_product_reward=exp_product_reward,
         )
     for a, b in sorted(edges):
         if a in keep_set and b in keep_set:
@@ -276,19 +270,19 @@ def plot_radial_tree(
     if graph.number_of_nodes() == 0 or root_key is None:
         return None
 
-    # Top-N MCTS ranks by the run's reward, keyed via key_fn (self-contained,
+    # Top-N MCTS ranks by the exponential product reward, keyed via key_fn (self-contained,
     # no external table). Nodes with no reward (unevaluated) are skipped.
     scored = [
-        (graph.nodes[n]["reward"], n)
+        (graph.nodes[n]["exp_product_reward"], n)
         for n in graph.nodes()
-        if graph.nodes[n].get("reward") is not None
+        if graph.nodes[n].get("exp_product_reward") is not None
     ]
     scored.sort(key=lambda t: (-t[0], t[1]))
     mcts_ranks = {key_fn(n): rank for rank, (_, n) in enumerate(scored[:top_n], start=1)}
 
-    pos = _radial_layout(graph, root_key, radius_step=10.0)
+    pos = _radial_layout(graph, root_key, radius_step=20.0)
     pos = {k: (-x, -y) for k, (x, y) in pos.items()}  # flip 180 deg for aesthetics
-    pos = _spread_nodes(pos, root_key, min_dist=5.5)
+    pos = _spread_nodes(pos, root_key, min_dist=18.0, max_iters=1500)
 
     # Only the BFS spanning tree is drawn (revisit cross-links omitted for
     # legibility, matching the original product figure).
@@ -336,11 +330,14 @@ def plot_radial_tree(
     ax_rehull = fig.add_subplot(gs[0, 1])
     ax_rdos = fig.add_subplot(gs[1, 1])
 
+    norm_exp_product = _norm("exp_product_reward", positive_only=True)
+    norm_exp_rehull = _norm("exp_r_ehull", positive_only=True)
+
     panels = [
-        (ax_main, _colors("reward", cmap_reward, norm_reward), cmap_reward,
-         norm_reward, "Reward", "(a)"),
-        (ax_rehull, _colors("r_ehull", cmap_rehull, norm_rehull), cmap_rehull,
-         norm_rehull, r"$r_{E_{\mathrm{Hull}}}$", "(b)"),
+        (ax_main, _colors("exp_product_reward", cmap_reward, norm_exp_product), cmap_reward,
+         norm_exp_product, r"$r_{\mathrm{total}}$", "(a)"),
+        (ax_rehull, _colors("exp_r_ehull", cmap_rehull, norm_exp_rehull), cmap_rehull,
+         norm_exp_rehull, r"$r_{E_{\mathrm{Hull}}}$", "(b)"),
         (ax_rdos, _colors("r_dos", cmap_rdos, norm_rdos), cmap_rdos,
          norm_rdos, r"$r_{\mathrm{DOS}}$", "(c)"),
     ]
@@ -352,11 +349,14 @@ def plot_radial_tree(
         is_main = ax is ax_main
         ns = NODE_SIZE_MAIN if is_main else NODE_SIZE_SMALL
 
+        # Draw edges with slight curve to help avoid overlaps
+        # Use smaller curve for main panel, slightly larger for small panels
+        rad = 0.15 if is_main else 0.2
         nx.draw_networkx_edges(
             graph, pos, ax=ax, edgelist=tree_edges, edge_color="dimgray",
             width=1.2 if is_main else 0.7, arrows=True,
             arrowsize=7 if is_main else 4, arrowstyle="-|>",
-            connectionstyle="arc3,rad=0.08", node_size=ns,
+            connectionstyle=f"arc3,rad={rad}", node_size=ns,
             min_source_margin=2, min_target_margin=2,
         )
         nx.draw_networkx_nodes(
@@ -371,7 +371,7 @@ def plot_radial_tree(
                     continue
                 x, y = pos[n]
                 ax.text(x, y, str(rank), ha="center", va="center", fontsize=8,
-                        color="white", zorder=10)
+                        color="black", zorder=10)
 
         if root_key in pos:
             rx, ry = pos[root_key]

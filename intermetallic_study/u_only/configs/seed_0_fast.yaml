@@ -12,7 +12,7 @@ mcts:
   termination_limit: 100
   selection_mode: ucb1
   rollout_depth: 3
-  n_rollout: 2
+  n_rollout: 3
   rollout_aggregation: max
   search_mode: fast
   seed: 0

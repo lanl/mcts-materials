@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 from typing import Callable, Dict, Hashable, Optional, Tuple
 
+import numpy as np
 import pandas as pd
 
 from ..intermetallic import DoscarRewardLookup, UnstablePenalty, ehull_reward
@@ -62,6 +63,7 @@ def score_by_method(
         rdos               -> r_DOS                       (raw, unweighted)
         ehull_rdos         -> beta * ehull_reward + gamma * r_DOS
         ehull_rdos_product -> ehull_reward * r_DOS        (no gamma)
+        ehull_rdos_product_exponential -> exp(ehull_reward) * r_DOS
 
     A test pins this to the reward classes so the two cannot drift.
     """
@@ -74,6 +76,8 @@ def score_by_method(
         return beta * ehull_term + gamma * r_dos
     if rollout_method == "ehull_rdos_product":
         return ehull_term * r_dos
+    if rollout_method == "ehull_rdos_product_exponential":
+        return float(np.exp(ehull_term)) * r_dos
     raise ValueError(f"Unknown rollout_method: {rollout_method!r}")
 
 

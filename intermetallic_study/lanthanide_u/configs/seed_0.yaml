@@ -13,7 +13,7 @@ mcts:
   termination_limit: 100
   selection_mode: ucb1
   rollout_depth: 3
-  n_rollout: 2
+  n_rollout: 3
   rollout_aggregation: max
   search_mode: thorough
   seed: 0
@@ -24,9 +24,9 @@ intermetallic:
   transition_metal: Cu
   group_iv: Sn
   f_block_mode: lanthanides_u
-  move_step: 2
+  move_step: 1
   u_bridge: wide
-  rollout_method: ehull_rdos_product
+  rollout_method: ehull_rdos_product_exponential
   beta: 1.0
   gamma: 1.0  # 1 / 2516.1664410449775 (max r_DOS in U-only)
 

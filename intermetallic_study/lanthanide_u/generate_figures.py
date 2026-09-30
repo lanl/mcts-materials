@@ -26,6 +26,7 @@ from mcts_framework.postprocessing import (
 # Study-specific helpers live alongside the drivers (not in the library).
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from _study_figures import (  # noqa: E402
+    EXPERIMENTAL_LANTHANIDE_COMPOUNDS,
     experimental_overlay_points,
     lanthanide_u_filter,
     write_txt_table,
@@ -132,6 +133,7 @@ def main():
             config=config,
             top_n=args.top_n,
             space_filter=lanthanide_u_filter,
+            experimental=EXPERIMENTAL_LANTHANIDE_COMPOUNDS,
             ymax=1.5,
         )
         if fig is not None and experimental_path.exists() and config.intermetallic:
