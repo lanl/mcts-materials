@@ -127,7 +127,7 @@ def _build_intermetallic(config: Config) -> Tuple[object, object, "PropertyEvalu
 
     # DOSCAR lookup needed for the rDOS-using methods.
     doscar = None
-    if ic.rollout_method in ("rdos", "ehull_rdos", "ehull_rdos_product"):
+    if ic.rollout_method in ("rdos", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"):
         doscar = DoscarRewardLookup(peaks_file=ic.doscar_data_path)
 
     reward = create_intermetallic_reward(

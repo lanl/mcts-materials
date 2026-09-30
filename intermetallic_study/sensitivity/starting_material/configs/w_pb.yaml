@@ -5,8 +5,8 @@ mcts:
   exploration_constant: 1.41
   termination_limit: 100
   selection_mode: ucb1
-  rollout_depth: 1
-  n_rollout: 2
+  rollout_depth: 3
+  n_rollout: 3
   rollout_aggregation: max
   search_mode: thorough
   seed: 0
@@ -17,7 +17,7 @@ intermetallic:
   f_block_mode: u_only
   move_step: 1
   u_bridge: narrow
-  rollout_method: ehull_rdos_product
+  rollout_method: ehull_rdos_product_exponential
   beta: 1.0
   gamma: 1.0
   doscar_data_path: /Users/blaubach/codex/mcts-materials/doscar_peaks_data_with_U_complete.csv

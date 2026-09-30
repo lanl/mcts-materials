@@ -62,6 +62,8 @@ def plot_ehull_vs_rdos(
     space_filter: Optional[Callable[[str], bool]] = None,
     synthesized: Optional[Sequence[str]] = None,
     attempted_path: Optional[str] = None,
+    attempted_unsuccessful: Optional[Sequence[str]] = None,
+    experimental: Optional[Sequence[str]] = None,
     ymax: Optional[float] = None,
 ):
     """
@@ -89,6 +91,11 @@ def plot_ehull_vs_rdos(
         synthesized: dash- or plain-form names known synthesized (filled square).
         attempted_path: compounds_filtered.dat path; attempted-but-not-
             synthesized compounds get an open square.
+        attempted_unsuccessful: dash- or plain-form names of attempted but
+            unsuccessfully synthesized compounds (open square). Alternative to
+            attempted_path for direct list specification.
+        experimental: dash- or plain-form names of experimental literature
+            compounds (small red squares).
         ymax: optional upper E_hull limit. Default None shows the full data
             range; pass e.g. 1.5 for a tight publication view that excludes the
             E_hull=UnstablePenalty outliers (no_mp_data/error compounds) which
@@ -118,10 +125,28 @@ def plot_ehull_vs_rdos(
 
     space = df_mace.copy()
     space["name"] = space.get("name", space.get("formula"))
+    # Filter to only valid data quality
+    if "data_quality" in space.columns:
+        space = space[space["data_quality"] == "valid"].copy()
     if space_filter is not None:
         space = space[space["name"].apply(space_filter)].copy()
     if space.empty:
         return None
+
+    # Deduplicate by element set (unique composition, not ordering)
+    # Keep first occurrence of each unique element set
+    from pymatgen.core import Composition
+    def get_element_set(name):
+        try:
+            comp = Composition(name)
+            return frozenset(str(e) for e in comp.elements)
+        except:
+            return frozenset()
+
+    space["_elem_set"] = space["name"].apply(get_element_set)
+    space = space.drop_duplicates(subset="_elem_set", keep="first")
+    space = space.drop(columns=["_elem_set"])
+
     space["r_dos"] = space["name"].apply(doscar_lookup.get_reward)
     space["x"] = space["r_dos"].astype(float)
     space["y"] = space["e_above_hull"].astype(float)
@@ -138,19 +163,29 @@ def plot_ehull_vs_rdos(
     # Experimentally-attempted overlays (optional).
     synth_sets = [_elem_set(s) for s in (synthesized or [])]
     attempted_sets = _load_attempted_sets(attempted_path)
-    succ_x, succ_y, unsucc_x, unsucc_y = [], [], [], []
+    # Also add directly specified unsuccessful attempts
+    if attempted_unsuccessful:
+        attempted_sets.extend([_elem_set(s) for s in attempted_unsuccessful])
+    # Experimental literature compounds
+    experimental_sets = [_elem_set(s) for s in (experimental or [])]
+    succ_x, succ_y, unsucc_x, unsucc_y, exp_x, exp_y = [], [], [], [], [], []
     for _, r in space.iterrows():
         es = _elem_set(r["name"])
         if any(es == s for s in synth_sets):
             succ_x.append(r["x"]); succ_y.append(r["y"])
         elif any(es == s for s in attempted_sets):
             unsucc_x.append(r["x"]); unsucc_y.append(r["y"])
+        elif any(es == s for s in experimental_sets):
+            exp_x.append(r["x"]); exp_y.append(r["y"])
     if unsucc_x:
-        ax.scatter(unsucc_x, unsucc_y, s=80, marker="s", facecolors="none",
-                   edgecolors="#9467bd", linewidths=1.2, label="Unsuccessful synthesis")
+        ax.scatter(unsucc_x, unsucc_y, s=45, marker="s", facecolors="none",
+                   edgecolors="#E69F00", linewidths=1.2, alpha=0.8, label="Unsuccessful synthesis")
     if succ_x:
-        ax.scatter(succ_x, succ_y, s=100, marker="s", facecolors="#9467bd",
-                   edgecolors="#9467bd", linewidths=0.8, label="Successful synthesis")
+        ax.scatter(succ_x, succ_y, s=70, marker="s", facecolors="#E69F00",
+                   edgecolors="#E69F00", linewidths=1.2, alpha=0.8, label="Successful synthesis")
+    if exp_x:
+        ax.scatter(exp_x, exp_y, s=40, marker="D", facecolors="#d62728",
+                   edgecolors="#d62728", linewidths=0.8, alpha=0.7, label="Experimental literature")
 
     # Run top-N overlay, matched to the backdrop by key so element ordering in
     # the run's formulas doesn't silently drop points. Rank by the SAME reward
@@ -198,12 +233,16 @@ def plot_ehull_vs_rdos(
     ]
     if unsucc_x:
         handles.append(Line2D([0], [0], marker="s", linestyle="None",
-                       markerfacecolor="none", markeredgecolor="#9467bd",
+                       markerfacecolor="none", markeredgecolor="#E69F00",
                        markersize=7, label="Unsuccessful synthesis"))
     if succ_x:
         handles.append(Line2D([0], [0], marker="s", linestyle="None",
-                       markerfacecolor="#9467bd", markeredgecolor="#9467bd",
+                       markerfacecolor="#E69F00", markeredgecolor="#E69F00",
                        markersize=7, label="Successful synthesis"))
+    if exp_x:
+        handles.append(Line2D([0], [0], marker="D", linestyle="None",
+                       markerfacecolor="#d62728", markeredgecolor="#d62728",
+                       markersize=5, label="Experimental literature"))
     ax.legend(handles=handles, fontsize=7, frameon=False)
     fig.tight_layout()
 

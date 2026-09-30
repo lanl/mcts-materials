@@ -131,13 +131,15 @@ class IntermetallicConfig(BaseModel):
     )
 
     rollout_method: Literal[
-        "ehull", "ehull_rdos", "ehull_rdos_product", "rdos"
+        "ehull", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential", "rdos"
     ] = "ehull"
     beta: float = Field(1.0, description="E_hull weight (ehull_rdos)")
     gamma: float = Field(
         0.0001,
-        description="rDOS weight (ehull_rdos only; ehull_rdos_product is "
-        "ehull_reward * r_DOS and ignores gamma)",
+        description="rDOS weight (ehull_rdos only; ehull_rdos_product, "
+        "ehull_rdos_product_shifted, ehull_rdos_product_offset, "
+        "ehull_rdos_product_exponential, ehull_rdos_product_tanh_shifted, and "
+        "ehull_rdos_product_direct_exponential are multiplicative and ignore gamma)",
     )
 
     mp_api_key: Optional[str] = Field(
@@ -172,7 +174,7 @@ class IntermetallicConfig(BaseModel):
                 self.mp_api_key = env_key
 
         needs_key = self.rollout_method in (
-            "ehull", "ehull_rdos", "ehull_rdos_product"
+            "ehull", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"
         )
         if needs_key and not self.mp_api_key:
             raise ValueError(
@@ -180,7 +182,7 @@ class IntermetallicConfig(BaseModel):
                 f"set mp_api_key in the config or export MP_API_KEY"
             )
         needs_doscar = self.rollout_method in (
-            "rdos", "ehull_rdos", "ehull_rdos_product"
+            "rdos", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"
         )
         if needs_doscar and not self.doscar_data_path:
             raise ValueError(
