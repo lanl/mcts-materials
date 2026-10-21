@@ -19,10 +19,22 @@ dist/
 # OS
 .DS_Store
 
-# Embargoed/large data - do not commit until public release
-doscar_peaks_data_with_U.csv
-high_throughput_mace_results.full.csv
+# Embargoed/large data - do not commit until public release. DOS/energy data
+# (DOSCAR peak CSVs, projected-DOS HDF5 exports, raw DOSCARs, MACE caches,
+# precomputed r_DOS tables) is read locally from paths given in the config;
+# keep it under data/ or anywhere outside the tree.
+doscar_peaks_data_with_U*.csv
+high_throughput_mace_results*.csv
+rdos_bandpass*.csv
+*_doscar_list.csv
+DOSCAR*
+*.h5
+*.hdf5
+*.db
 *.tar.gz
+*.tgz
+*.zip
+data/
 
 # MCTS run outputs (regenerate locally with mcts-run)
 mcts_results*/
