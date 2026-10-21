@@ -69,6 +69,7 @@ class MCTS(Generic[M]):
         search_mode: str = "fast",
         seed: Optional[int] = None,
         parallel_steps: int = 1,
+        max_evaluations: Optional[int] = None,
     ):
         """
         Args:
@@ -131,6 +132,11 @@ class MCTS(Generic[M]):
                 evaluates its rollout walks concurrently; whether that is
                 faster depends on the evaluator (see MaceEvaluator's
                 max_workers).
+            max_evaluations: Optional evaluation budget. The run stops before
+                a round once this many distinct materials have had their
+                properties computed (tree nodes and rollout materials alike),
+                so a search can be limited by its true cost instead of by
+                iterations. None = no budget.
         """
         if rollout_aggregation not in ("max", "mean"):
             raise ValueError(
@@ -144,6 +150,9 @@ class MCTS(Generic[M]):
         if parallel_steps < 1:
             raise ValueError(f"parallel_steps must be >= 1, got {parallel_steps}")
         self.parallel_steps = parallel_steps
+        if max_evaluations is not None and max_evaluations < 1:
+            raise ValueError(f"max_evaluations must be >= 1, got {max_evaluations}")
+        self.max_evaluations = max_evaluations
         self.exploration_constant = exploration_constant
         self.termination_limit = termination_limit
         self.rollout_depth = rollout_depth
@@ -178,6 +187,8 @@ class MCTS(Generic[M]):
         # Per-iteration history for convergence analysis.
         self.reward_history: List[float] = []
         self.unique_materials_history: List[int] = []
+        # Distinct materials evaluated so far (tree + rollouts): the search's cost.
+        self.evaluations_history: List[int] = []
 
     # ------------------------------------------------------------------ #
     # Public driver
@@ -203,6 +214,9 @@ class MCTS(Generic[M]):
                 logger.info("Stopping at iteration %d (%s)", i,
                             "exhausted" if self.terminated else "converged")
                 break
+            if self.max_evaluations is not None and len(self.property_evaluator.cache) >= self.max_evaluations:
+                logger.info("Stopping at iteration %d (evaluation budget of %d reached)", i, self.max_evaluations)
+                break
 
             k = min(self.parallel_steps, iterations - i)
             if k == 1:
@@ -226,6 +240,7 @@ class MCTS(Generic[M]):
             logger.error("Iteration %d failed: %s", i, exc)
         self.reward_history.append(self.best_reward)
         self.unique_materials_history.append(len(self.visited_materials))
+        self.evaluations_history.append(len(self.property_evaluator.cache))
 
     async def _step(self) -> None:
         """Run one selection -> expansion -> simulation -> backprop cycle."""

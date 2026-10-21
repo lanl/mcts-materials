@@ -55,6 +55,11 @@ class MCTSConfig(BaseModel):
     """Material-agnostic MCTS search hyperparameters."""
 
     iterations: int = Field(1000, ge=1, description="Number of MCTS iterations")
+    max_evaluations: Optional[int] = Field(
+        None, ge=1,
+        description="Evaluation budget: stop once this many distinct materials "
+        "have been evaluated (tree nodes and rollout materials). None = no budget.",
+    )
     exploration_constant: float = Field(
         0.1, ge=0.0, description="UCB/PUCT exploration weight (c)"
     )

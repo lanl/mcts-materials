@@ -64,6 +64,7 @@ def build_mcts(config: Config) -> MCTS:
         search_mode=config.mcts.search_mode,
         seed=config.mcts.seed,
         parallel_steps=config.mcts.parallel_steps,
+        max_evaluations=config.mcts.max_evaluations,
     )
 
 

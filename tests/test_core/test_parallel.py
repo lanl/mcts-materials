@@ -140,3 +140,16 @@ async def test_summary_counts_rollout_evaluations():
     s = mcts.summary()
     assert s["evaluations"] == len(ev.cache) == ev.compute_calls
     assert s["evaluations"] >= s["unique_materials"]  # rollouts probe beyond the tree
+
+
+@pytest.mark.asyncio
+async def test_evaluation_history_and_budget():
+    ev = DistanceEvaluator(target=5)
+    mcts = make_mcts(ev, n_rollout=3, rollout_depth=3, search_mode="thorough", max_evaluations=12)
+    await mcts.run(iterations=100)
+    assert len(mcts.evaluations_history) == len(mcts.reward_history) < 100
+    assert mcts.evaluations_history == sorted(mcts.evaluations_history)
+    assert mcts.evaluations_history[-1] >= 12 and mcts.evaluations_history[-2] < 12
+    assert mcts.summary()["evaluations"] == len(ev.cache)
+    with pytest.raises(ValueError):
+        make_mcts(DistanceEvaluator(target=5), max_evaluations=0)

@@ -63,6 +63,8 @@ def save_results(
     _write_summary(mcts, paths["summary"])
     _write_best_materials(mcts, paths["best_materials"], top_n)
     _write_convergence(mcts, paths["convergence"])
+    paths["evaluation_order"] = str(out / "evaluation_order.csv")
+    _write_evaluation_order(mcts, paths["evaluation_order"])
     _write_report(mcts, paths["report"], top_n)
 
     if config is not None:
@@ -106,8 +108,18 @@ def _write_convergence(mcts: MCTS, path: str) -> None:
         "iteration": range(len(mcts.reward_history)),
         "best_reward": mcts.reward_history,
         "unique_materials": mcts.unique_materials_history,
+        "evaluations": mcts.evaluations_history,
     })
     df.to_csv(path, index=False)
+
+
+def _write_evaluation_order(mcts: MCTS, path: str) -> None:
+    """Every evaluated material (tree nodes and rollout materials) in the order
+    its properties were first computed - the evaluator cache preserves insertion
+    order - so any metric can be recomputed at a fixed evaluation budget."""
+    cache = mcts.property_evaluator.cache
+    rows = [{"order": i + 1, "identifier": ident, **props} for i, (ident, props) in enumerate(cache.items())]
+    pd.DataFrame(rows).to_csv(path, index=False)
 
 
 def _write_report(mcts: MCTS, path: str, top_n: int) -> None:

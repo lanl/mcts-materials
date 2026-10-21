@@ -168,4 +168,4 @@ async def test_convergence_rows_match_iterations(tmp_path):
     paths = save_results(mcts, str(tmp_path / "r"))
     df = pd.read_csv(paths["convergence"])
     assert len(df) == len(mcts.reward_history)
-    assert list(df.columns) == ["iteration", "best_reward", "unique_materials"]
+    assert list(df.columns) == ["iteration", "best_reward", "unique_materials", "evaluations"]
