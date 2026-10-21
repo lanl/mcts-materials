@@ -27,7 +27,7 @@ import numpy as np
 
 from ..core.config import Config
 from ..intermetallic import ehull_reward
-from .design_space import full_formula_key, load_design_space, score_by_method
+from .design_space import full_formula_key, load_design_space, rdos_lookup_kwargs, score_by_method
 
 
 def _radial_layout(graph, root, radius_step: float = 4.0) -> Dict[Any, tuple]:
@@ -263,7 +263,9 @@ def plot_radial_tree(
     with open(tree_path) as f:
         tree = json.load(f)
 
-    _, doscar_lookup = load_design_space(ic.cache_path or "", ic.doscar_data_path)
+    _, doscar_lookup = load_design_space(
+        ic.cache_path or "", ic.doscar_data_path, **rdos_lookup_kwargs(ic)
+    )
     graph, root_key = _build_graph(
         tree, doscar_lookup, ic.rollout_method, ic.beta, ic.gamma, max_nodes
     )

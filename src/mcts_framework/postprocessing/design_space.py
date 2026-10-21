@@ -20,6 +20,7 @@ import numpy as np
 import pandas as pd
 
 from ..intermetallic import DoscarRewardLookup, UnstablePenalty, ehull_reward
+from ..intermetallic.dos_bandpass import BandpassDosRewardLookup
 
 
 def full_formula_key(name) -> str:
@@ -81,12 +82,43 @@ def score_by_method(
     raise ValueError(f"Unknown rollout_method: {rollout_method!r}")
 
 
+def make_rdos_lookup(
+    doscar_data: str,
+    rdos_method: str = "peak_sum",
+    bandpass_params: Optional[Dict[str, float]] = None,
+    doscar_run: Optional[str] = None,
+) -> DoscarRewardLookup:
+    """
+    The r_DOS lookup a run used, rebuilt from its config fields: the peak-sum
+    DoscarRewardLookup (default) or the band-pass BandpassDosRewardLookup
+    (rdos_method='bandpass', with the run's rdos_bandpass parameters and
+    HDF5 run selection).
+    """
+    if rdos_method == "bandpass":
+        return BandpassDosRewardLookup(doscar_data, run=doscar_run, **(bandpass_params or {}))
+    return DoscarRewardLookup(peaks_file=str(doscar_data))
+
+
+def rdos_lookup_kwargs(ic) -> Dict[str, object]:
+    """rdos_method / bandpass_params / doscar_run from an IntermetallicConfig."""
+    bp = getattr(ic, "rdos_bandpass", None)
+    return {
+        "rdos_method": getattr(ic, "rdos_method", "peak_sum"),
+        "bandpass_params": bp.model_dump() if bp is not None else None,
+        "doscar_run": getattr(ic, "doscar_run", None),
+    }
+
+
 def load_design_space(
     mace_cache: str,
     doscar_peaks: str,
+    rdos_method: str = "peak_sum",
+    bandpass_params: Optional[Dict[str, float]] = None,
+    doscar_run: Optional[str] = None,
 ) -> Tuple[Optional[pd.DataFrame], DoscarRewardLookup]:
     """
-    Load the high-throughput MACE cache and the DOSCAR rDOS lookup.
+    Load the high-throughput MACE cache and the rDOS lookup (see
+    make_rdos_lookup for rdos_method / bandpass_params / doscar_run).
 
     Returns (df_mace, doscar_lookup):
       - df_mace: the MACE results CSV (columns include name, e_above_hull), or
@@ -105,7 +137,7 @@ def load_design_space(
         except Exception:
             df_mace = None
 
-    return df_mace, DoscarRewardLookup(peaks_file=str(doscar_peaks))
+    return df_mace, make_rdos_lookup(doscar_peaks, rdos_method, bandpass_params, doscar_run)
 
 
 def rank_design_space(
@@ -116,6 +148,9 @@ def rank_design_space(
     beta: float = 1.0,
     key_fn: Callable[[str], Hashable] = full_formula_key,
     space_filter: Optional[Callable[[str], bool]] = None,
+    rdos_method: str = "peak_sum",
+    bandpass_params: Optional[Dict[str, float]] = None,
+    doscar_run: Optional[str] = None,
 ) -> Dict[Hashable, int]:
     """
     Rank a design space by the run's reward so MCTS results can be checked
@@ -141,7 +176,9 @@ def rank_design_space(
         {key: rank} with rank 1 = best score. Ties keep first-seen order (stable
         sort). rDOS is attached per-compound via the full formula.
     """
-    df_mace, doscar_lookup = load_design_space(mace_cache, doscar_peaks)
+    df_mace, doscar_lookup = load_design_space(
+        mace_cache, doscar_peaks, rdos_method, bandpass_params, doscar_run
+    )
     if df_mace is None or not len(df_mace):
         return {}
 

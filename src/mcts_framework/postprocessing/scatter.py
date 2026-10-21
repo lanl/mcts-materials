@@ -25,7 +25,7 @@ from typing import Callable, Hashable, Optional, Sequence
 import pandas as pd
 
 from ..core.config import Config
-from .design_space import full_formula_key, load_design_space, score_by_method
+from .design_space import full_formula_key, load_design_space, rdos_lookup_kwargs, score_by_method
 
 
 def _elem_set(name) -> set:
@@ -119,7 +119,9 @@ def plot_ehull_vs_rdos(
             "doscar_data_path (DOSCAR peaks) for the design-space backdrop"
         )
 
-    df_mace, doscar_lookup = load_design_space(ic.cache_path, ic.doscar_data_path)
+    df_mace, doscar_lookup = load_design_space(
+        ic.cache_path, ic.doscar_data_path, **rdos_lookup_kwargs(ic)
+    )
     if df_mace is None or not len(df_mace):
         return None
 

@@ -19,6 +19,7 @@ import pandas as pd
 from ..core.config import Config
 from ..intermetallic import ehull_reward
 from .design_space import (
+    rdos_lookup_kwargs,
     full_formula_key,
     load_design_space,
     rank_design_space,
@@ -148,7 +149,7 @@ def write_top_n_table(
     if "r_DOS" not in df.columns and "dos_reward" in df.columns:
         df["r_DOS"] = df["dos_reward"]
     if "r_DOS" not in df.columns:
-        _, doscar_lookup = load_design_space(mace_cache, doscar_peaks)
+        _, doscar_lookup = load_design_space(mace_cache, doscar_peaks, **rdos_lookup_kwargs(ic))
         df["r_DOS"] = df["name"].apply(
             lambda n: doscar_lookup.get_reward(str(n).split("|")[0])
         )
@@ -165,7 +166,7 @@ def write_top_n_table(
 
     global_ranks = rank_design_space(
         mace_cache, doscar_peaks, rollout_method, gamma, beta,
-        key_fn=key_fn, space_filter=space_filter,
+        key_fn=key_fn, space_filter=space_filter, **rdos_lookup_kwargs(ic),
     )
     synth_sets = [_elem_set(s) for s in (synthesized or [])]
     attempted_sets = _load_attempted_sets(attempted_path)

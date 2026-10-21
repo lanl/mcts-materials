@@ -19,7 +19,7 @@ from typing import Callable, Dict, Hashable, List, Optional, Sequence
 import pandas as pd
 
 from ..core.config import Config
-from .design_space import full_formula_key, load_design_space
+from .design_space import full_formula_key, load_design_space, rdos_lookup_kwargs
 from .radial_tree import plot_radial_tree
 from .scatter import plot_ehull_vs_rdos
 from .tables import write_top_n_table
@@ -131,7 +131,9 @@ def generate_study_outputs(
     # r_DOS as 0, silently zeroing any rDOS-dependent reward (e.g. the product).
     ic = config.intermetallic
     if ic is not None and ic.doscar_data_path and "name" in df.columns and len(df):
-        _, doscar_lookup = load_design_space(ic.cache_path or "", ic.doscar_data_path)
+        _, doscar_lookup = load_design_space(
+            ic.cache_path or "", ic.doscar_data_path, **rdos_lookup_kwargs(ic)
+        )
         df["r_DOS"] = df["name"].apply(doscar_lookup.get_reward)
 
     produced: Dict[str, str] = {}
