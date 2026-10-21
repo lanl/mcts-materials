@@ -63,6 +63,7 @@ def build_mcts(config: Config) -> MCTS:
         rollout_aggregation=config.mcts.rollout_aggregation,
         search_mode=config.mcts.search_mode,
         seed=config.mcts.seed,
+        parallel_steps=config.mcts.parallel_steps,
     )
 
 
@@ -125,7 +126,12 @@ def _build_intermetallic(config: Config) -> Tuple[object, object, "PropertyEvalu
     moves = PeriodicTableMoves(
         f_block_mode=ic.f_block_mode, move_step=ic.move_step, u_bridge=ic.u_bridge
     )
-    evaluator = MaceEvaluator(cache_path=ic.cache_path, mp_api_key=ic.mp_api_key)
+    evaluator = MaceEvaluator(
+        cache_path=ic.cache_path,
+        mp_api_key=ic.mp_api_key,
+        max_workers=ic.mace_workers,
+        torch_threads=ic.mace_threads,
+    )
 
     # DOSCAR lookup needed for the rDOS-using methods.
     doscar = None

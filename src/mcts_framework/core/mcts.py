@@ -16,6 +16,7 @@ behavior is injected via four collaborators:
 © 2026. Triad National Security, LLC. All rights reserved.
 """
 
+import asyncio
 import logging
 import random
 from typing import TypeVar, Generic, List, Optional, Set, Dict, Any
@@ -67,6 +68,7 @@ class MCTS(Generic[M]):
         rollout_aggregation: str = "max",
         search_mode: str = "fast",
         seed: Optional[int] = None,
+        parallel_steps: int = 1,
     ):
         """
         Args:
@@ -115,6 +117,20 @@ class MCTS(Generic[M]):
                 and selection always skips terminated children; the mode only
                 governs whether the root's countdown-termination *ends the run*.
             seed: Optional RNG seed for reproducibility.
+            parallel_steps: Number of selection->expansion->simulation->
+                backpropagation steps run concurrently per round (1 = the
+                classic sequential algorithm). Within a round the selections
+                and expansions happen one after another on the shared tree
+                (each attaches its own child), then the simulations' property
+                evaluations run concurrently and each step backpropagates as
+                its simulation finishes. Steps in a round therefore select on
+                tree statistics that do not yet include the other steps'
+                results ("leaf parallelisation" without virtual loss), so
+                results differ from a sequential run and the value should stay
+                small (<= 8). Independent of this, every simulation already
+                evaluates its rollout walks concurrently; whether that is
+                faster depends on the evaluator (see MaceEvaluator's
+                max_workers).
         """
         if rollout_aggregation not in ("max", "mean"):
             raise ValueError(
@@ -125,6 +141,9 @@ class MCTS(Generic[M]):
             raise ValueError(
                 f"search_mode must be 'fast' or 'thorough', got {search_mode!r}"
             )
+        if parallel_steps < 1:
+            raise ValueError(f"parallel_steps must be >= 1, got {parallel_steps}")
+        self.parallel_steps = parallel_steps
         self.exploration_constant = exploration_constant
         self.termination_limit = termination_limit
         self.rollout_depth = rollout_depth
@@ -174,31 +193,39 @@ class MCTS(Generic[M]):
         - 'thorough': stop only on true exhaustion; the root's countdown
           termination is ignored so the full iteration budget is used.
         """
-        logger.info("Starting MCTS: %d iterations (mode=%s)",
-                    iterations, self.search_mode)
+        logger.info("Starting MCTS: %d iterations (mode=%s, parallel_steps=%d)",
+                    iterations, self.search_mode, self.parallel_steps)
 
-        for i in range(iterations):
-            self.iteration = i
-
+        i = 0
+        while i < iterations:
             converged = self.root.terminated and self.search_mode == "fast"
             if self.terminated or converged:
                 logger.info("Stopping at iteration %d (%s)", i,
                             "exhausted" if self.terminated else "converged")
                 break
 
-            try:
-                await self._step()
-            except Exception as exc:  # keep the search alive on a bad node
-                logger.error("Iteration %d failed: %s", i, exc)
-
-            self.reward_history.append(self.best_reward)
-            self.unique_materials_history.append(len(self.visited_materials))
+            k = min(self.parallel_steps, iterations - i)
+            if k == 1:
+                await self._run_step(i)
+            else:
+                await asyncio.gather(*(self._run_step(i + j) for j in range(k)))
+            i += k
 
         logger.info(
             "MCTS complete. Best reward=%.4f, unique materials=%d",
             self.best_reward,
             len(self.visited_materials),
         )
+
+    async def _run_step(self, i: int) -> None:
+        """One iteration with error containment and history bookkeeping."""
+        self.iteration = i
+        try:
+            await self._step()
+        except Exception as exc:  # keep the search alive on a bad node
+            logger.error("Iteration %d failed: %s", i, exc)
+        self.reward_history.append(self.best_reward)
+        self.unique_materials_history.append(len(self.visited_materials))
 
     async def _step(self) -> None:
         """Run one selection -> expansion -> simulation -> backprop cycle."""
@@ -376,48 +403,64 @@ class MCTS(Generic[M]):
         # the starting material, returning `own` again - so the walks cannot
         # change the aggregate. Skip them (rollout_depth == 0 means "no
         # lookahead," same as n_rollout == 0).
-        if self.rollout_depth > 0:
-            for _ in range(self.n_rollout):
-                samples.append(await self._rollout_sample(node.material))
+        if self.rollout_depth > 0 and self.n_rollout > 0:
+            # A walk's path depends only on the RNG, not on any evaluation, so
+            # draw every path first (same RNG order as walk-by-walk sampling)
+            # and then evaluate all the materials they visit concurrently.
+            walks = [self._sample_walk(node.material) for _ in range(self.n_rollout)]
+            rewards = await self._evaluate_rewards(
+                [mat for walk in walks for mat in walk]
+            )
+            for walk in walks:
+                samples.append(max(rewards[mat.get_identifier()] for mat in walk))
 
         if self.rollout_aggregation == "max":
             return max(samples)
         return sum(samples) / len(samples)  # 'mean'
 
-    async def _rollout_sample(self, material: M) -> float:
+    def _sample_walk(self, material: M) -> List[M]:
         """
-        One "max-along-walk" random rollout.
+        Draw the path of one "max-along-walk" random rollout.
 
-        Take up to rollout_depth independent random moves and evaluate the
-        reward at EVERY intermediate composition, returning the maximum seen
-        along the walk. Every composition the walk passes through is a valid
-        candidate, so scoring only the endpoint would discard information;
-        max-along-walk extracts up to `rollout_depth` candidate evaluations
-        per walk instead of one. Returns the node's own reward if no move is
-        possible.
+        Take up to rollout_depth independent random moves and return every
+        composition visited, each of which is a valid candidate: scoring only
+        the endpoint would discard information, so the walk is later scored by
+        the maximum reward along it. If no move is possible the walk is just
+        [material], so it scores the node's own reward.
 
-        Rollout samples are NOT added to the tree and do NOT reserve
-        identifiers - they only probe reward, so their materials remain
-        available for real expansion later.
+        Rollout materials are NOT added to the tree and do NOT reserve
+        identifiers - they only probe reward, so they remain available for
+        real expansion later.
         """
         current = material
-        step_rewards: List[float] = []
-
+        path: List[M] = []
         for _ in range(self.rollout_depth):
             moves = self.move_generator.generate_moves(current)
             moves = self.move_generator.filter_invalid(moves)
             if not moves:
                 break
             current = self._rng.choice(moves)
-            props = await self.property_evaluator.evaluate(current)
-            step_rewards.append(self.reward_function.compute_reward(props))
+            path.append(current)
+        return path or [material]
 
-        if not step_rewards:
-            # No move was possible; fall back to the starting material's reward.
-            props = await self.property_evaluator.evaluate(material)
-            return self.reward_function.compute_reward(props)
+    async def _evaluate_rewards(self, materials: List[M]) -> Dict[str, float]:
+        """Evaluate distinct materials concurrently; return identifier -> reward."""
+        unique: Dict[str, M] = {}
+        for mat in materials:
+            unique.setdefault(mat.get_identifier(), mat)
+        props = await asyncio.gather(
+            *(self.property_evaluator.evaluate(mat) for mat in unique.values())
+        )
+        return {
+            ident: self.reward_function.compute_reward(p)
+            for ident, p in zip(unique, props)
+        }
 
-        return max(step_rewards)
+    async def _rollout_sample(self, material: M) -> float:
+        """One random rollout, scored by the max reward along its walk."""
+        walk = self._sample_walk(material)
+        rewards = await self._evaluate_rewards(walk)
+        return max(rewards[mat.get_identifier()] for mat in walk)
 
     # ------------------------------------------------------------------ #
     # Phase 4: Backpropagation

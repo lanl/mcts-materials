@@ -21,6 +21,9 @@ class PropertyEvaluator(ABC):
     This class provides:
     - Automatic caching by material identifier
     - Async interface for parallel evaluation
+    - In-flight de-duplication: concurrent evaluate() calls for the same
+      material (e.g. two rollout walks crossing the same composition) share a
+      single _compute() and both receive its result
     - Cache persistence methods
 
     Subclasses implement _compute() with actual calculation logic.
@@ -53,8 +56,20 @@ class PropertyEvaluator(ABC):
         if identifier in self.cache:
             return self.cache[identifier]
 
-        # Compute properties
-        properties = await self._compute(material)
+        # Join an in-flight computation of the same material, if any.
+        # (Set up lazily so subclasses that skip super().__init__ still work.)
+        inflight = self.__dict__.setdefault("_inflight", {})
+        task = inflight.get(identifier)
+        if task is not None:
+            return await asyncio.shield(task)
+
+        # Compute properties; other callers can join via the task.
+        task = asyncio.ensure_future(self._compute(material))
+        inflight[identifier] = task
+        try:
+            properties = await task
+        finally:
+            inflight.pop(identifier, None)
 
         # Cache result
         self.cache[identifier] = properties

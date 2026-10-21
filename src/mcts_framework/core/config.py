@@ -92,6 +92,13 @@ class MCTSConfig(BaseModel):
     )
 
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
+    parallel_steps: int = Field(
+        1, ge=1,
+        description="MCTS steps run concurrently per round (1 = classic "
+        "sequential search). Steps in a round select on tree statistics that "
+        "exclude each other's results, so keep this small (<= 8); rollout "
+        "walks are always evaluated concurrently regardless of this value.",
+    )
     output_dir: str = Field("mcts_results", description="Output directory")
 
     model_config = {"extra": "forbid"}
@@ -195,6 +202,18 @@ class IntermetallicConfig(BaseModel):
     )
     cache_path: Optional[str] = Field(
         None, description="Path to MACE energy cache CSV"
+    )
+    mace_workers: int = Field(
+        1, ge=1,
+        description="Concurrent MACE relaxations (worker threads, one "
+        "calculator each). Concurrency comes from rollout walks (up to "
+        "n_rollout x rollout_depth evaluations per step) and parallel_steps.",
+    )
+    mace_threads: Optional[int] = Field(
+        None, ge=1,
+        description="Torch intra-op threads per MACE worker; pick "
+        "mace_workers x mace_threads <= cores (unset = torch default, which "
+        "oversubscribes when mace_workers > 1).",
     )
 
     # Optional composition overrides applied to the starting structure.

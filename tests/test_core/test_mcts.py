@@ -208,18 +208,19 @@ async def test_n_rollout_counts_walks_not_off_by_one():
     Regression: n_rollout is the number of rollout WALKS drawn, additional to
     the mandatory depth-0 self-evaluation. n_rollout=1 must draw one walk (the
     old code ran the loop n_rollout-1 times, so n_rollout=1 drew ZERO walks and
-    rollout_depth was silently ignored). We count _rollout_sample calls.
+    rollout_depth was silently ignored). We count the walks drawn
+    (_sample_walk calls; the walks are then evaluated concurrently).
     """
     for n in (0, 1, 3):
         mcts = make_mcts(target=0, start=5, n_rollout=n, rollout_depth=4, seed=0)
         walks = {"n": 0}
-        orig = mcts._rollout_sample
+        orig = mcts._sample_walk
 
-        async def wrapped(material, _orig=orig, _c=walks):
+        def wrapped(material, _orig=orig, _c=walks):
             _c["n"] += 1
-            return await _orig(material)
+            return _orig(material)
 
-        mcts._rollout_sample = wrapped
+        mcts._sample_walk = wrapped
         await mcts._simulate(mcts.root)
         assert walks["n"] == n, f"n_rollout={n} should draw {n} walks, drew {walks['n']}"
 

@@ -15,7 +15,11 @@ matbench-discovery) are imported lazily so cache-only / rdos-only workflows
 don't need them.
 
 The synchronous heavy work runs in a thread-pool executor via the async
-PropertyEvaluator interface, keeping the MCTS event loop responsive.
+PropertyEvaluator interface, keeping the MCTS event loop responsive. The pool
+size (max_workers) bounds how many MACE relaxations run at once when the
+search issues concurrent evaluations (rollout walks, parallel steps); each
+worker thread owns its own MACE calculator and is pinned to torch_threads
+intra-op threads so workers do not oversubscribe the node.
 
 © 2025. Triad National Security, LLC. All rights reserved.
 """
@@ -24,6 +28,7 @@ import asyncio
 import logging
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
@@ -40,6 +45,18 @@ UnstablePenalty = 10.0
 _CACHE_COLUMNS = ["name", "e_form", "e_above_hull", "e_decomp", "data_quality"]
 
 
+def _init_worker(torch_threads: Optional[int]) -> None:
+    """Thread-pool initializer: cap torch intra-op threads in this worker."""
+    if torch_threads is None:
+        return
+    try:
+        import torch
+
+        torch.set_num_threads(torch_threads)
+    except Exception as exc:  # pragma: no cover - torch missing / unsupported
+        logger.debug("Could not set torch threads: %s", exc)
+
+
 class MaceEvaluator(PropertyEvaluator):
     """
     MACE + Materials Project property evaluator with CSV caching.
@@ -54,10 +71,33 @@ class MaceEvaluator(PropertyEvaluator):
         self,
         cache_path: Optional[str] = None,
         mp_api_key: Optional[str] = None,
+        max_workers: int = 1,
+        torch_threads: Optional[int] = None,
     ):
+        """
+        Args:
+            cache_path: Formula-keyed CSV cache of previous evaluations.
+            mp_api_key: Materials Project key for the convex hull.
+            max_workers: Concurrent MACE relaxations (one calculator per worker
+                thread). 1 reproduces the serial behaviour.
+            torch_threads: Torch intra-op threads per worker. Choose
+                max_workers * torch_threads <= cores on the node; None leaves
+                torch's default (all cores per call, which oversubscribes when
+                max_workers > 1).
+        """
         super().__init__()
         self.cache_path = cache_path
         self.mp_api_key = mp_api_key
+        if max_workers < 1:
+            raise ValueError(f"max_workers must be >= 1, got {max_workers}")
+        self.max_workers = max_workers
+        self.torch_threads = torch_threads
+        self._executor = ThreadPoolExecutor(
+            max_workers=max_workers,
+            thread_name_prefix="mace",
+            initializer=_init_worker,
+            initargs=(torch_threads,),
+        )
         self.last_e_decomp = 0.0
         self._warned_no_api_key = False
 
@@ -102,7 +142,7 @@ class MaceEvaluator(PropertyEvaluator):
         """
         loop = asyncio.get_event_loop()
         e_form, e_hull, formula = await loop.run_in_executor(
-            None, self._compute_sync, material.atoms
+            self._executor, self._compute_sync, material.atoms
         )
         return {"e_form": e_form, "e_above_hull": e_hull, "formula": formula}
 

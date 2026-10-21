@@ -141,6 +141,7 @@ def validate(
     typer.secho("Config is valid.", fg=typer.colors.GREEN, bold=True)
     typer.echo(f"  material_type : {cfg.material_type}")
     typer.echo(f"  iterations    : {cfg.mcts.iterations}")
+    typer.echo(f"  parallel_steps: {cfg.mcts.parallel_steps}")
     typer.echo(f"  selection     : {cfg.mcts.selection_mode}")
     if cfg.material_type == "intermetallic":
         typer.echo(f"  rollout       : {cfg.intermetallic.rollout_method}")

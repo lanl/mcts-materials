@@ -234,6 +234,35 @@ material and its reward are always self-consistent.
 The intermetallic rewards preserve the validated constants from `mcts_crystal`:
 `ehull_reward = -tanh(120·(E_hull − 0.05))` and rDOS Gaussian width σ = 0.5 eV.
 
+### Parallel search
+Three independent layers, all off by default so a default run reproduces the
+published sequential behaviour:
+
+1. **Concurrent rollout evaluation (always on).** Each simulation draws its
+   `n_rollout` walks first (same RNG sequence as before) and then evaluates
+   every material they visit concurrently, de-duplicating materials that are
+   in flight. Results are identical to the sequential algorithm.
+2. **`intermetallic.mace_workers` / `mace_threads`.** Size of the MACE worker
+   pool and the torch threads each worker may use. Concurrency only pays off
+   when evaluations can actually run side by side, so on a 112-core node use
+   e.g. `mace_workers: 10`, `mace_threads: 10`. Each worker loads its own MACE
+   calculator (~130 MB).
+3. **`mcts.parallel_steps`.** Runs that many full MCTS steps per round: the
+   selections and expansions happen one after another on the shared tree, the
+   simulations run concurrently, and each step backpropagates as it finishes.
+   Steps in a round select without seeing each other's results (leaf
+   parallelisation without virtual loss), so this changes the search and should
+   stay small (<= 8). Use it when `n_rollout × rollout_depth` is too small to
+   keep the workers busy.
+
+```yaml
+mcts:
+  parallel_steps: 4
+intermetallic:
+  mace_workers: 10
+  mace_threads: 10
+```
+
 ### Band-pass r_DOS (`rdos_method: bandpass`)
 The published r_DOS sums height/width over peaks extracted from each DOSCAR.
 On the RM₆X₆ data every extracted "width" was ~2 energy-grid points, so h/w
