@@ -418,7 +418,7 @@ async def test_summary_fields():
         "best_reward",
         "best_material",
         "unique_materials",
-        "tree_size",
+        "tree_size", "evaluations",
     }
     assert s["best_material"] == "5"
 
