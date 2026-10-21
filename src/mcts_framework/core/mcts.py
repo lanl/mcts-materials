@@ -548,4 +548,8 @@ class MCTS(Generic[M]):
             ),
             "unique_materials": len(self.visited_materials),
             "tree_size": self.root.get_subtree_size(),
+            # every distinct material whose properties were computed in this
+            # run, including rollout materials that were never attached to the
+            # tree - the search's true evaluation cost
+            "evaluations": len(self.property_evaluator.cache),
         }

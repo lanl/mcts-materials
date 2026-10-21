@@ -130,3 +130,13 @@ async def test_parallel_steps_round_is_truncated_to_budget():
     mcts = make_mcts(DistanceEvaluator(target=5), parallel_steps=8)
     await mcts.run(iterations=5)
     assert len(mcts.reward_history) == 5
+
+
+@pytest.mark.asyncio
+async def test_summary_counts_rollout_evaluations():
+    ev = DistanceEvaluator(target=5)
+    mcts = make_mcts(ev, n_rollout=3, rollout_depth=3, search_mode="thorough")
+    await mcts.run(iterations=20)
+    s = mcts.summary()
+    assert s["evaluations"] == len(ev.cache) == ev.compute_calls
+    assert s["evaluations"] >= s["unique_materials"]  # rollouts probe beyond the tree
