@@ -74,11 +74,11 @@ def test_intermetallic_rdos_needs_no_api_key():
     assert cfg.rollout_method == "rdos"
 
 
-def test_intermetallic_rdos_method_defaults_to_peak_sum():
+def test_intermetallic_rdos_method_defaults_to_bandpass():
     cfg = IntermetallicConfig(
         structure_path="foo.cif", rollout_method="rdos", doscar_data_path="d.csv",
     )
-    assert cfg.rdos_method == "peak_sum"
+    assert cfg.rdos_method == "bandpass"
     assert cfg.rdos_bandpass.background_ev == 0.5
     assert cfg.doscar_run is None
 

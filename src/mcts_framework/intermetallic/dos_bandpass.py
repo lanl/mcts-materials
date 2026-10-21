@@ -275,6 +275,12 @@ class BandpassDosRewardLookup(DoscarRewardLookup):
                 g = g.sort_values("ENERGY")
                 n = float(g["N_ATOMS"].iloc[0]) if "N_ATOMS" in cols else None
                 self._score(str(key), g["ENERGY"].to_numpy(), g["DOS"].to_numpy(), n_atoms=n)
+        elif {"COMPOUND_NAME", "PEAK_ENERGY", "PEAK_HEIGHT"} <= cols:
+            raise ValueError(
+                f"{path} is a DOSCAR *peaks* table, which the band-pass reward cannot use; "
+                "give it DOS curves (DOSCAR-list CSV, long-format DOS CSV or HDF5 export) "
+                "or set rdos_method: peak_sum to use the peak-sum reward"
+            )
         else:
             raise ValueError(
                 f"{path}: unrecognised columns {sorted(cols)}; expected COMPOUND_NAME with "

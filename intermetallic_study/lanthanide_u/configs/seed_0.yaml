@@ -31,6 +31,7 @@ intermetallic:
   gamma: 1.0  # 1 / 2516.1664410449775 (max r_DOS in U-only)
 
   # Data paths
+  rdos_method: peak_sum   # published peak-sum reward; the default is now bandpass
   doscar_data_path: doscar_peaks_data_with_U.csv
   cache_path: high_throughput_mace_results.full.csv
   mp_api_key: null

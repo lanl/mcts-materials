@@ -84,15 +84,15 @@ def score_by_method(
 
 def make_rdos_lookup(
     doscar_data: str,
-    rdos_method: str = "peak_sum",
+    rdos_method: str = "bandpass",
     bandpass_params: Optional[Dict[str, float]] = None,
     doscar_run: Optional[str] = None,
 ) -> DoscarRewardLookup:
     """
-    The r_DOS lookup a run used, rebuilt from its config fields: the peak-sum
-    DoscarRewardLookup (default) or the band-pass BandpassDosRewardLookup
-    (rdos_method='bandpass', with the run's rdos_bandpass parameters and
-    HDF5 run selection).
+    The r_DOS lookup a run used, rebuilt from its config fields: the band-pass
+    BandpassDosRewardLookup (default, with the run's rdos_bandpass parameters
+    and HDF5 run selection) or the peak-sum DoscarRewardLookup
+    (rdos_method='peak_sum').
     """
     if rdos_method == "bandpass":
         return BandpassDosRewardLookup(doscar_data, run=doscar_run, **(bandpass_params or {}))
@@ -103,7 +103,7 @@ def rdos_lookup_kwargs(ic) -> Dict[str, object]:
     """rdos_method / bandpass_params / doscar_run from an IntermetallicConfig."""
     bp = getattr(ic, "rdos_bandpass", None)
     return {
-        "rdos_method": getattr(ic, "rdos_method", "peak_sum"),
+        "rdos_method": getattr(ic, "rdos_method", "bandpass"),
         "bandpass_params": bp.model_dump() if bp is not None else None,
         "doscar_run": getattr(ic, "doscar_run", None),
     }
@@ -112,7 +112,7 @@ def rdos_lookup_kwargs(ic) -> Dict[str, object]:
 def load_design_space(
     mace_cache: str,
     doscar_peaks: str,
-    rdos_method: str = "peak_sum",
+    rdos_method: str = "bandpass",
     bandpass_params: Optional[Dict[str, float]] = None,
     doscar_run: Optional[str] = None,
 ) -> Tuple[Optional[pd.DataFrame], DoscarRewardLookup]:
@@ -148,7 +148,7 @@ def rank_design_space(
     beta: float = 1.0,
     key_fn: Callable[[str], Hashable] = full_formula_key,
     space_filter: Optional[Callable[[str], bool]] = None,
-    rdos_method: str = "peak_sum",
+    rdos_method: str = "bandpass",
     bandpass_params: Optional[Dict[str, float]] = None,
     doscar_run: Optional[str] = None,
 ) -> Dict[Hashable, int]:

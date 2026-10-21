@@ -182,13 +182,14 @@ class IntermetallicConfig(BaseModel):
         "the MP_API_KEY environment variable (keeps the key out of shared "
         "config files).",
     )
-    rdos_method: Literal["peak_sum", "bandpass"] = Field(
-        "peak_sum",
-        description="How r_DOS is computed from the DOS data: 'peak_sum' "
-        "(published sum of height/width over extracted peaks, needs a DOSCAR "
-        "peaks CSV) or 'bandpass' (max of the difference-of-Gaussians excess "
-        "near E_F, computed from the DOS curves; see "
-        "mcts_framework.intermetallic.dos_bandpass).",
+    rdos_method: Literal["bandpass", "peak_sum"] = Field(
+        "bandpass",
+        description="How r_DOS is computed from the DOS data: 'bandpass' "
+        "(default; max of the difference-of-Gaussians excess near E_F, "
+        "computed from the DOS curves, see "
+        "mcts_framework.intermetallic.dos_bandpass) or 'peak_sum' (the "
+        "earlier sum of height/width over extracted peaks, which needs a "
+        "DOSCAR peaks CSV).",
     )
     rdos_bandpass: BandpassRdosParams = Field(
         default_factory=BandpassRdosParams,
@@ -196,9 +197,9 @@ class IntermetallicConfig(BaseModel):
     )
     doscar_data_path: Optional[str] = Field(
         None,
-        description="DOS data for the rdos/ehull_rdos* methods. peak_sum: DOSCAR "
-        "peaks CSV. bandpass: DOSCAR-list CSV, long-format DOS CSV, "
-        "projected-DOS HDF5 export, or a precomputed COMPOUND_NAME,RDOS CSV.",
+        description="DOS data for the rdos/ehull_rdos* methods. bandpass: "
+        "DOSCAR-list CSV, long-format DOS CSV, projected-DOS HDF5 export, or a "
+        "precomputed COMPOUND_NAME,RDOS CSV. peak_sum: DOSCAR peaks CSV.",
     )
     doscar_run: Optional[str] = Field(
         None,

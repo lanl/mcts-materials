@@ -263,12 +263,12 @@ intermetallic:
   mace_threads: 10
 ```
 
-### Band-pass r_DOS (`rdos_method: bandpass`)
+### Band-pass r_DOS (the default `rdos_method`)
 The published r_DOS sums height/width over peaks extracted from each DOSCAR.
 On the RM₆X₆ data every extracted "width" was ~2 energy-grid points, so h/w
 tracked the grid spacing of each calculation and flat, rippled DOS curves
-scored highest. `rdos_method: bandpass` replaces it with a quantity computed
-directly from the DOS curve, per atom, on a uniform eV grid:
+scored highest. The band-pass r_DOS (the default) replaces it with a quantity
+computed directly from the DOS curve, per atom, on a uniform eV grid:
 
 ```
 r_DOS = max over |E| ≤ 0.3 eV of [ D₀.₀₅(E) − D₀.₅(E) ] · exp(−E² / 2·0.15²),  clipped at 0
@@ -300,8 +300,9 @@ Precompute once with
 python -m mcts_framework.intermetallic.dos_bandpass dos/projected_DOS.h5 --run RE_f_core,U_f_core -o rdos_bandpass.csv
 ```
 
-and point `doscar_data_path` at the result; the default `rdos_method: peak_sum`
-keeps the published behaviour.
+and point `doscar_data_path` at the result. `bandpass` is the default; set
+`rdos_method: peak_sum` (as the configs under `intermetallic_study/` do) to
+reproduce the earlier peak-sum reward from a DOSCAR peaks CSV.
 
 ### Superhydride reward and expansion rule
 The reward is Equation 2 of Belli, Torres, Contreras-García and Zurek,

@@ -39,6 +39,7 @@ intermetallic:
   gamma: 0.0001                 # rDOS weight  (ehull_rdos only)
 
   # Data / credentials:
+  rdos_method: peak_sum   # published peak-sum reward; the default is now bandpass
   doscar_data_path: examples/doscar_peaks_data_with_U.csv  # required for rdos/ehull_rdos
   mp_api_key: null              # required for ehull/ehull_rdos (not rdos)
   cache_path: null              # optional MACE energy cache CSV
