@@ -10,6 +10,7 @@ mcts_crystal codebase into the modular framework interfaces.
 from .structure import IntermetallicStructure
 from .moves import PeriodicTableMoves
 from .doscar import DoscarRewardLookup
+from .dos_bandpass import BandpassDosRewardLookup, bandpass_rdos
 from .rewards import (
     EhullReward,
     RdosReward,
@@ -24,6 +25,8 @@ __all__ = [
     "IntermetallicStructure",
     "PeriodicTableMoves",
     "DoscarRewardLookup",
+    "BandpassDosRewardLookup",
+    "bandpass_rdos",
     "EhullReward",
     "RdosReward",
     "EhullRdosReward",

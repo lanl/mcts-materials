@@ -74,6 +74,36 @@ def test_intermetallic_rdos_needs_no_api_key():
     assert cfg.rollout_method == "rdos"
 
 
+def test_intermetallic_rdos_method_defaults_to_peak_sum():
+    cfg = IntermetallicConfig(
+        structure_path="foo.cif", rollout_method="rdos", doscar_data_path="d.csv",
+    )
+    assert cfg.rdos_method == "peak_sum"
+    assert cfg.rdos_bandpass.background_ev == 0.5
+    assert cfg.doscar_run is None
+
+
+def test_intermetallic_bandpass_params():
+    cfg = IntermetallicConfig(
+        structure_path="foo.cif", rollout_method="rdos", doscar_data_path="dos.h5",
+        rdos_method="bandpass", doscar_run="RE_f_core,U_f_core",
+        rdos_bandpass={"smooth_ev": 0.02, "background_ev": 0.4},
+    )
+    assert cfg.rdos_method == "bandpass"
+    assert cfg.rdos_bandpass.smooth_ev == 0.02
+    assert cfg.rdos_bandpass.window_ev == 0.3  # untouched default
+    with pytest.raises(ValidationError):  # background must exceed smoothing
+        IntermetallicConfig(
+            structure_path="foo.cif", rollout_method="rdos", doscar_data_path="dos.h5",
+            rdos_method="bandpass", rdos_bandpass={"smooth_ev": 0.6},
+        )
+    with pytest.raises(ValidationError):  # unknown method
+        IntermetallicConfig(
+            structure_path="foo.cif", rollout_method="rdos", doscar_data_path="d.csv",
+            rdos_method="peaks",
+        )
+
+
 def test_intermetallic_move_step():
     """move_step defaults to 1 and must be >= 1."""
     cfg = IntermetallicConfig(

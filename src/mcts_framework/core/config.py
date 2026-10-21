@@ -97,6 +97,27 @@ class MCTSConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
 
+class BandpassRdosParams(BaseModel):
+    """
+    Parameters of the band-pass r_DOS (rdos_method='bandpass'); see
+    mcts_framework.intermetallic.dos_bandpass. All energies in eV.
+    """
+
+    smooth_ev: float = Field(0.05, gt=0, description="Gaussian width a of the fine smoothing")
+    background_ev: float = Field(0.50, gt=0, description="Gaussian width b of the local background")
+    window_ev: float = Field(0.30, gt=0, description="search window |E - E_F| <= window_ev")
+    sigma_ev: float = Field(0.15, gt=0, description="proximity discount exp(-E^2 / 2 sigma^2)")
+    n_atoms: float = Field(13, gt=0, description="atoms per cell (DOS files are per cell; the reward is per atom)")
+
+    model_config = {"extra": "forbid"}
+
+    @model_validator(mode="after")
+    def _check_widths(self) -> "BandpassRdosParams":
+        if self.background_ev <= self.smooth_ev:
+            raise ValueError("rdos_bandpass.background_ev must exceed smooth_ev")
+        return self
+
+
 class IntermetallicConfig(BaseModel):
     """Intermetallic crystal-structure search settings."""
 
@@ -149,8 +170,28 @@ class IntermetallicConfig(BaseModel):
         "the MP_API_KEY environment variable (keeps the key out of shared "
         "config files).",
     )
+    rdos_method: Literal["peak_sum", "bandpass"] = Field(
+        "peak_sum",
+        description="How r_DOS is computed from the DOS data: 'peak_sum' "
+        "(published sum of height/width over extracted peaks, needs a DOSCAR "
+        "peaks CSV) or 'bandpass' (max of the difference-of-Gaussians excess "
+        "near E_F, computed from the DOS curves; see "
+        "mcts_framework.intermetallic.dos_bandpass).",
+    )
+    rdos_bandpass: BandpassRdosParams = Field(
+        default_factory=BandpassRdosParams,
+        description="Band-pass r_DOS parameters (rdos_method='bandpass' only)",
+    )
     doscar_data_path: Optional[str] = Field(
-        None, description="Path to DOSCAR peaks CSV (required for rdos/ehull_rdos)"
+        None,
+        description="DOS data for the rdos/ehull_rdos* methods. peak_sum: DOSCAR "
+        "peaks CSV. bandpass: DOSCAR-list CSV, long-format DOS CSV, "
+        "projected-DOS HDF5 export, or a precomputed COMPOUND_NAME,RDOS CSV.",
+    )
+    doscar_run: Optional[str] = Field(
+        None,
+        description="bandpass + HDF5 only: run(s) to read, comma-separated "
+        "(e.g. 'RE_f_core,U_f_core'); all runs if unset.",
     )
     cache_path: Optional[str] = Field(
         None, description="Path to MACE energy cache CSV"

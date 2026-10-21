@@ -130,7 +130,21 @@ def _build_intermetallic(config: Config) -> Tuple[object, object, "PropertyEvalu
     # DOSCAR lookup needed for the rDOS-using methods.
     doscar = None
     if ic.rollout_method in ("rdos", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"):
-        doscar = DoscarRewardLookup(peaks_file=ic.doscar_data_path)
+        if ic.rdos_method == "bandpass":
+            from ..intermetallic.dos_bandpass import BandpassDosRewardLookup
+
+            bp = ic.rdos_bandpass
+            doscar = BandpassDosRewardLookup(
+                ic.doscar_data_path,
+                run=ic.doscar_run,
+                n_atoms=bp.n_atoms,
+                smooth_ev=bp.smooth_ev,
+                background_ev=bp.background_ev,
+                window_ev=bp.window_ev,
+                sigma_ev=bp.sigma_ev,
+            )
+        else:
+            doscar = DoscarRewardLookup(peaks_file=ic.doscar_data_path)
 
     reward = create_intermetallic_reward(
         ic.rollout_method,

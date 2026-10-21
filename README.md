@@ -63,7 +63,7 @@ are the same either way:
 | Extra | Pulls in | Needed for |
 | --- | --- | --- |
 | _(none)_ | numpy, pandas, pydantic, pyyaml, tqdm, typer | core + `rdos`-only runs + tests |
-| `intermetallic` | ASE, spglib, MACE, pymatgen, matbench-discovery | `ehull*` rollout methods |
+| `intermetallic` | ASE, spglib, MACE, pymatgen, matbench-discovery, h5py | `ehull*` rollout methods; h5py only for HDF5 DOS exports |
 | `superhydride` | ASE, spglib, scipy | superhydride search |
 | `molecule` | RDKit (+ molecule-modifier, installed separately) | molecule search |
 | `viz` | matplotlib, seaborn, networkx | plots + `mcts-run figures` |
@@ -233,6 +233,46 @@ material and its reward are always self-consistent.
 ### Preserved physics
 The intermetallic rewards preserve the validated constants from `mcts_crystal`:
 `ehull_reward = -tanh(120·(E_hull − 0.05))` and rDOS Gaussian width σ = 0.5 eV.
+
+### Band-pass r_DOS (`rdos_method: bandpass`)
+The published r_DOS sums height/width over peaks extracted from each DOSCAR.
+On the RM₆X₆ data every extracted "width" was ~2 energy-grid points, so h/w
+tracked the grid spacing of each calculation and flat, rippled DOS curves
+scored highest. `rdos_method: bandpass` replaces it with a quantity computed
+directly from the DOS curve, per atom, on a uniform eV grid:
+
+```
+r_DOS = max over |E| ≤ 0.3 eV of [ D₀.₀₅(E) − D₀.₅(E) ] · exp(−E² / 2·0.15²),  clipped at 0
+```
+
+`D₀.₀₅` and `D₀.₅` are the DOS smoothed with 0.05 eV and 0.5 eV Gaussians;
+their difference is a band-pass filter that passes a feature narrower than
+~0.3 eV with 60–70 % of its height, a 1 eV hump with ~10 %, and removes the
+background locally. Taking the max scores one dominant feature instead of
+summing ripples; the Gaussian in E discounts features off E_F. Values are
+0–2.5 states/eV/atom, so `r_S × r_DOS` stays well scaled. See
+`src/mcts_framework/intermetallic/dos_bandpass.py`.
+
+```yaml
+intermetallic:
+  rollout_method: ehull_rdos_product_exponential
+  rdos_method: bandpass
+  doscar_data_path: dos/projected_DOS.h5     # or a DOSCAR-list / long DOS / precomputed CSV
+  doscar_run: RE_f_core,U_f_core             # HDF5 only
+  rdos_bandpass: {smooth_ev: 0.05, background_ev: 0.5, window_ev: 0.3, sigma_ev: 0.15, n_atoms: 13}
+```
+
+`doscar_data_path` accepts a CSV listing VASP DOSCAR files (`COMPOUND_NAME,DOSCAR`),
+a long-format DOS CSV (`COMPOUND_NAME,ENERGY,DOS[,N_ATOMS]`, energy relative to
+E_F), the projected-DOS HDF5 export, or a precomputed `COMPOUND_NAME,RDOS` CSV.
+Precompute once with
+
+```bash
+python -m mcts_framework.intermetallic.dos_bandpass dos/projected_DOS.h5 --run RE_f_core,U_f_core -o rdos_bandpass.csv
+```
+
+and point `doscar_data_path` at the result; the default `rdos_method: peak_sum`
+keeps the published behaviour.
 
 ### Superhydride reward and expansion rule
 The reward is Equation 2 of Belli, Torres, Contreras-García and Zurek,
