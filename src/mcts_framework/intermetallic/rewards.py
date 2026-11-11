@@ -13,8 +13,10 @@ Nine formulations, matching the validated mcts_crystal rollout methods:
     EhullRdosProductDirectExponentialReward: exp(-e_hull) * r_DOS                 ('ehull_rdos_product_direct_exponential')
     RdosReward                            : r_DOS                                  ('rdos')
 
-The ehull sharpness (120) and stability threshold (0.05 eV/atom) are
-physics-informed constants, not tunable hyperparameters. beta and gamma are
+The ehull sharpness (120 eV^-1) is fixed. The stability threshold E_thres
+(default 0.05 eV/atom) is set from experiment (the largest E_hull among the
+compounds that were synthesized, plus a margin) and can be changed with the
+'ehull_threshold' config field; it is not a search hyperparameter. beta and gamma are
 the additive composite-score weights (defaults 1.0 / 0.0001 from the published
 study). The product method takes NO gamma - a single global scalar cannot
 change a purely multiplicative ranking - and because ehull_term is negative
@@ -47,14 +49,23 @@ _EHULL_SHARPNESS = 120.0
 _EHULL_THRESHOLD = 0.05  # eV/atom
 
 
-def ehull_reward(e_hull: float) -> float:
+def ehull_reward(e_hull: float, threshold: float = _EHULL_THRESHOLD) -> float:
     """
     Sharp tanh reward for energy above hull.
 
-    f(E_hull) = -tanh(120 * (E_hull - 0.05)); ~+1 for stable (E_hull~0),
-    0 at the 0.05 eV/atom boundary, ~-1 for unstable (E_hull>=0.1).
+    f(E_hull) = -tanh(120 * (E_hull - E_thres)); ~+1 for stable compounds,
+    0 at E_thres (default 0.05 eV/atom), ~-1 for E_hull >= E_thres + 0.05.
     """
-    return float(-np.tanh(_EHULL_SHARPNESS * (e_hull - _EHULL_THRESHOLD)))
+    return float(-np.tanh(_EHULL_SHARPNESS * (e_hull - threshold)))
+
+
+class _ThresholdMixin:
+    """Holds the stability threshold used by the tanh-based rewards."""
+
+    e_thres: float = _EHULL_THRESHOLD
+
+    def _ehull_term(self, e_hull: float) -> float:
+        return ehull_reward(e_hull, self.e_thres)
 
 
 def _resolve_rdos(
@@ -75,11 +86,11 @@ def _resolve_rdos(
     return doscar_lookup.get_reward(str(formula))
 
 
-class EhullReward(RewardFunction):
+class EhullReward(_ThresholdMixin, RewardFunction):
     """Energy-above-hull reward only ('ehull')."""
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        return ehull_reward(properties["e_above_hull"])
+        return self._ehull_term(properties["e_above_hull"])
 
     def get_property_names(self) -> List[str]:
         return ["e_above_hull"]
@@ -98,7 +109,7 @@ class RdosReward(RewardFunction):
         return ["formula"]
 
 
-class EhullRdosReward(RewardFunction):
+class EhullRdosReward(_ThresholdMixin, RewardFunction):
     """
     Composite reward ('ehull_rdos'): beta * ehull_reward + gamma * r_DOS.
 
@@ -116,7 +127,7 @@ class EhullRdosReward(RewardFunction):
         self.gamma = gamma
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         return self.beta * ehull_term + self.gamma * rdos
 
@@ -124,7 +135,7 @@ class EhullRdosReward(RewardFunction):
         return ["e_above_hull", "formula"]
 
 
-class EhullRdosProductReward(RewardFunction):
+class EhullRdosProductReward(_ThresholdMixin, RewardFunction):
     """
     Multiplicative composite reward ('ehull_rdos_product'):
 
@@ -146,7 +157,7 @@ class EhullRdosProductReward(RewardFunction):
         self.doscar_lookup = doscar_lookup
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         return ehull_term * rdos
 
@@ -154,7 +165,7 @@ class EhullRdosProductReward(RewardFunction):
         return ["e_above_hull", "formula"]
 
 
-class EhullRdosProductShiftedReward(RewardFunction):
+class EhullRdosProductShiftedReward(_ThresholdMixin, RewardFunction):
     """
     Shifted multiplicative composite reward ('ehull_rdos_product_shifted'):
 
@@ -175,7 +186,7 @@ class EhullRdosProductShiftedReward(RewardFunction):
         self.doscar_lookup = doscar_lookup
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         # Shift ehull_term from [-1, +1] to [0, 1]
         shifted_ehull = (ehull_term + 1.0) / 2.0
@@ -185,7 +196,7 @@ class EhullRdosProductShiftedReward(RewardFunction):
         return ["e_above_hull", "formula"]
 
 
-class EhullRdosProductOffsetReward(RewardFunction):
+class EhullRdosProductOffsetReward(_ThresholdMixin, RewardFunction):
     """
     Offset multiplicative composite reward ('ehull_rdos_product_offset'):
 
@@ -206,7 +217,7 @@ class EhullRdosProductOffsetReward(RewardFunction):
         self.doscar_lookup = doscar_lookup
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         # Offset ehull_term from [-1, +1] to [0, 2]
         offset_ehull = ehull_term + 1.0
@@ -216,7 +227,7 @@ class EhullRdosProductOffsetReward(RewardFunction):
         return ["e_above_hull", "formula"]
 
 
-class EhullRdosProductExponentialReward(RewardFunction):
+class EhullRdosProductExponentialReward(_ThresholdMixin, RewardFunction):
     """
     Exponential multiplicative composite reward ('ehull_rdos_product_exponential'):
 
@@ -240,7 +251,7 @@ class EhullRdosProductExponentialReward(RewardFunction):
         self.doscar_lookup = doscar_lookup
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         # Apply exponential to ehull_term
         exp_ehull = float(np.exp(ehull_term))
@@ -250,7 +261,7 @@ class EhullRdosProductExponentialReward(RewardFunction):
         return ["e_above_hull", "formula"]
 
 
-class EhullRdosProductTanhShiftedReward(RewardFunction):
+class EhullRdosProductTanhShiftedReward(_ThresholdMixin, RewardFunction):
     """
     Tanh-shifted multiplicative composite reward ('ehull_rdos_product_tanh_shifted'):
 
@@ -271,7 +282,7 @@ class EhullRdosProductTanhShiftedReward(RewardFunction):
         self.doscar_lookup = doscar_lookup
 
     def compute_reward(self, properties: Dict[str, float]) -> float:
-        ehull_term = ehull_reward(properties["e_above_hull"])
+        ehull_term = self._ehull_term(properties["e_above_hull"])
         rdos = _resolve_rdos(properties, self.doscar_lookup)
         # Shift ehull_term by +1.1
         shifted_ehull = ehull_term + 1.1
@@ -319,6 +330,7 @@ def create_intermetallic_reward(
     doscar_lookup: Optional[DoscarRewardLookup] = None,
     beta: float = 1.0,
     gamma: float = 0.0001,
+    e_thres: float = _EHULL_THRESHOLD,
 ) -> RewardFunction:
     """
     Factory: build the reward function for a given rollout method.
@@ -334,10 +346,18 @@ def create_intermetallic_reward(
             'ehull_rdos_product_direct_exponential'.
         beta: E_hull weight for 'ehull_rdos' (unused by other methods).
         gamma: rDOS weight for 'ehull_rdos' (unused by other methods).
+        e_thres: stability threshold E_thres (eV/atom) of the tanh-based rewards.
 
     Raises:
         ValueError: On unknown method or missing doscar_lookup.
     """
+    reward = _create(rollout_method, doscar_lookup, beta, gamma)
+    if isinstance(reward, _ThresholdMixin):
+        reward.e_thres = float(e_thres)
+    return reward
+
+
+def _create(rollout_method, doscar_lookup, beta, gamma) -> RewardFunction:
     if rollout_method == "ehull":
         return EhullReward()
     if rollout_method == "rdos":

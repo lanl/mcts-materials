@@ -39,6 +39,75 @@ from .structure import IntermetallicStructure
 
 logger = logging.getLogger(__name__)
 
+def _fix_entry_modules(d):
+    """MP thermo documents serialize entries and their energy adjustments under the
+    old module path 'pymatgen.core.entries'. Without remapping, the adjustments stay
+    plain dicts, the entry energy cannot be computed, and every MP2020-corrected
+    entry (e.g. silicides with the Si anion correction) would be dropped."""
+    if isinstance(d, dict):
+        d = {k: _fix_entry_modules(v) for k, v in d.items()}
+        if d.get("@module") == "pymatgen.core.entries":
+            d["@module"] = "pymatgen.entries.computed_entries"
+        return d
+    if isinstance(d, list):
+        return [_fix_entry_modules(v) for v in d]
+    return d
+
+
+def mp2020_correction_per_atom(composition, energy_per_atom: float) -> float:
+    """MP2020 energy correction (eV/atom) for a GGA energy of the given composition,
+    so that a MACE-MP-0 energy is compared with the MP2020-corrected GGA/GGA+U hull on
+    the same footing (the matbench-discovery convention)."""
+    from pymatgen.core import Composition
+    from pymatgen.entries.compatibility import MaterialsProject2020Compatibility
+    from pymatgen.entries.computed_entries import ComputedEntry
+
+    comp = Composition(composition)
+    entry = ComputedEntry(comp, energy_per_atom * comp.num_atoms,
+                          parameters={"run_type": "GGA", "hubbards": {}, "is_hubbard": False})
+    out = MaterialsProject2020Compatibility(check_potcar=False).process_entry(entry)
+    return 0.0 if out is None else out.correction / comp.num_atoms
+
+
+def select_gga_entries(docs) -> list:
+    """GGA/GGA+U entries from Materials Project thermo documents.
+
+    The hull must be on the energy scale of the compound energies. MACE-MP-0
+    is trained on PBE/PBE+U (MPtrj) data and formation energies are taken
+    against the MP GGA elemental references, so only the documents of
+    thermo_type 'GGA_GGA+U' are used (MP2020-corrected GGA/GGA+U entries).
+    r2SCAN entries and the GGA/GGA+U/r2SCAN mixed documents are skipped:
+    raw r2SCAN total energies are on a different scale, and mixing them into
+    one PhaseDiagram gives r2SCAN elemental references. Duplicate entries
+    (the same entry reached from several chemical systems) are kept once.
+    """
+    from monty.json import MontyDecoder
+
+    decoder = MontyDecoder()
+    entries, seen = [], set()
+    for doc in docs:
+        if doc.get("thermo_type", "GGA_GGA+U") != "GGA_GGA+U" or "entries" not in doc:
+            continue
+        for run_type in ("GGA+U", "GGA", "GGA(+U)"):
+            if run_type not in doc["entries"]:
+                continue
+            try:
+                entry = decoder.process_decoded(_fix_entry_modules(doc["entries"][run_type]))
+            except Exception as exc:  # pragma: no cover - malformed upstream entry
+                logger.debug("Failed to deserialize %s entry: %s", run_type, exc)
+                continue
+            try:
+                entry.energy_per_atom
+            except Exception:  # pragma: no cover - undecodable adjustment
+                continue
+            key = (str(entry.entry_id), entry.composition.reduced_formula, round(entry.energy_per_atom, 6))
+            if key not in seen:
+                seen.add(key)
+                entries.append(entry)
+            break
+    return entries
+
+
 # Penalty e_above_hull (eV/atom) for compounds with missing/invalid MP data.
 UnstablePenalty = 10.0
 
@@ -198,7 +267,13 @@ class MaceEvaluator(PropertyEvaluator):
                     self._warned_no_api_key = True
                 e_hull = e_form
             else:
-                e_hull = e_form - e_decomp
+                # Same MP2020 correction as the hull entries (zero for most
+                # intermetallics; the Si anion correction for silicides).
+                corr = mp2020_correction_per_atom(
+                    atoms_copy.get_chemical_formula(),
+                    atoms_copy.get_total_energy() / len(atoms_copy),
+                )
+                e_hull = e_form + corr - e_decomp
 
             self.last_e_decomp = e_decomp
             self._cache_result(formula, e_form, e_hull, e_decomp, data_quality)
@@ -281,8 +356,6 @@ class MaceEvaluator(PropertyEvaluator):
         try:
             import requests
             from pymatgen.analysis.phase_diagram import PhaseDiagram
-            from monty.json import MontyDecoder
-
             url = "https://api.materialsproject.org/materials/thermo/"
             headers = {"X-API-KEY": self.mp_api_key}
 
@@ -298,30 +371,12 @@ class MaceEvaluator(PropertyEvaluator):
 
             all_data = []
             for sys in systems_to_query:
-                params = {"_fields": "entries", "chemsys": sys}
+                params = {"_fields": "entries,thermo_type", "chemsys": sys}
                 response = requests.get(url, params=params, headers=headers)
                 response.raise_for_status()
                 all_data.extend(response.json()['data'])
 
-            # Deserialize entries with MontyDecoder
-            decoder = MontyDecoder()
-            entries = []
-
-            for doc in all_data:
-                if 'entries' in doc:
-                    # Prioritize r2SCAN, then fall back to GGA variants
-                    for run_type in ['r2SCAN', 'GGA+U', 'GGA', 'GGA(+U)']:
-                        if run_type not in doc['entries']:
-                            continue
-                        entry_dict = doc['entries'][run_type]
-                        try:
-                            entry_obj = decoder.process_decoded(entry_dict)
-                        except Exception as e:
-                            logger.debug("Failed to deserialize %s entry: %s", run_type, e)
-                            continue
-                        if hasattr(entry_obj, 'energy_per_atom'):
-                            entries.append(entry_obj)
-                            break
+            entries = select_gga_entries(all_data)
 
             if not entries:
                 return None

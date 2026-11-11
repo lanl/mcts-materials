@@ -158,6 +158,7 @@ def _build_intermetallic(config: Config) -> Tuple[object, object, "PropertyEvalu
         doscar_lookup=doscar,
         beta=ic.beta,
         gamma=ic.gamma,
+        e_thres=ic.ehull_threshold,
     )
     return root, moves, evaluator, reward
 
