@@ -3,7 +3,7 @@ Reward functions for intermetallic search.
 
 Nine formulations, matching the validated mcts_crystal rollout methods:
 
-    EhullReward                           : -tanh(120 * (e_hull - 0.07))          ('ehull')
+    EhullReward                           : -tanh(120 * (e_hull - 0.054))          ('ehull')
     EhullRdosReward                       : beta * ehull_term + gamma * r_DOS      ('ehull_rdos')
     EhullRdosProductReward                : ehull_term * r_DOS                    ('ehull_rdos_product')
     EhullRdosProductShiftedReward         : ((ehull_term + 1) / 2) * r_DOS        ('ehull_rdos_product_shifted')
@@ -14,9 +14,9 @@ Nine formulations, matching the validated mcts_crystal rollout methods:
     RdosReward                            : r_DOS                                  ('rdos')
 
 The ehull sharpness (120 eV^-1) is fixed. The stability threshold E_thres
-(default 0.07 eV/atom) is set from experiment (the largest E_hull among the
+(default 0.054 eV/atom) is set from experiment: the largest E_hull among the
 compounds that were synthesized, UCr6Ge6 at 0.054 eV/atom on the GGA/GGA+U hull,
-plus a margin) and can be changed with the
+with no margin and can be changed with the
 'ehull_threshold' config field; it is not a search hyperparameter. beta and gamma are
 the additive composite-score weights (defaults 1.0 / 0.0001 from the published
 study). The product method takes NO gamma - a single global scalar cannot
@@ -47,7 +47,7 @@ from .doscar import DoscarRewardLookup
 
 # Physics-informed constants (do NOT sweep).
 _EHULL_SHARPNESS = 120.0
-_EHULL_THRESHOLD = 0.07  # eV/atom
+_EHULL_THRESHOLD = 0.054  # eV/atom
 
 
 def ehull_reward(e_hull: float, threshold: float = _EHULL_THRESHOLD) -> float:
@@ -55,7 +55,7 @@ def ehull_reward(e_hull: float, threshold: float = _EHULL_THRESHOLD) -> float:
     Sharp tanh reward for energy above hull.
 
     f(E_hull) = -tanh(120 * (E_hull - E_thres)); ~+1 for stable compounds,
-    0 at E_thres (default 0.07 eV/atom), ~-1 for E_hull >= E_thres + 0.05.
+    0 at E_thres (default 0.054 eV/atom), ~-1 for E_hull >= E_thres + 0.05.
     """
     return float(-np.tanh(_EHULL_SHARPNESS * (e_hull - threshold)))
 
@@ -149,7 +149,7 @@ class EhullRdosProductReward(_ThresholdMixin, RewardFunction):
     keeps the reward meaningful without a redundant knob.
 
     Since ehull_reward is negative for unstable compounds (e_hull above the
-    E_thres threshold, 0.07 eV/atom by default), an unstable compound yields a negative product
+    E_thres threshold, 0.054 eV/atom by default), an unstable compound yields a negative product
     regardless of how favorable its rDOS is - so this method gates on
     stability more strictly than the additive ehull_rdos.
     """

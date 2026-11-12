@@ -232,9 +232,9 @@ material and its reward are always self-consistent.
 
 ### Preserved physics
 The intermetallic rewards preserve the validated constants from `mcts_crystal`:
-`ehull_reward = -tanh(120·(E_hull − E_thres))` with `E_thres = 0.07 eV/atom` by default
-(`intermetallic.ehull_threshold`; the largest E_hull among the synthesized compounds on the
-GGA/GGA+U hull plus a margin) and rDOS Gaussian width σ = 0.5 eV.
+`ehull_reward = -tanh(120·(E_hull − E_thres))` with `E_thres = 0.054 eV/atom` by default
+(`intermetallic.ehull_threshold`; the E_hull of UCr6Ge6, the least stable synthesized compound,
+on the GGA/GGA+U hull) and rDOS Gaussian width σ = 0.5 eV.
 
 ### Parallel search
 Three independent layers, all off by default so a default run reproduces the
