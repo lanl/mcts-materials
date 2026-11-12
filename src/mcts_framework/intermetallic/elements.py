@@ -33,6 +33,39 @@ TM_4D = range(40, 49)  # Zr..Cd
 TM_5D = range(72, 81)  # Hf..Hg
 
 
+# Pauling electronegativity of the elements of the design space (pymatgen's
+# values; 1.2 where pymatgen has none: Eu, Yb). Used only for the descriptors
+# of the MCTS model prior.
+PAULING_EN = {
+    22: 1.54, 23: 1.63, 24: 1.66, 25: 1.55, 26: 1.83, 27: 1.88, 28: 1.91, 29: 1.90, 30: 1.65,
+    40: 1.33, 41: 1.60, 42: 2.16, 43: 1.90, 44: 2.20, 45: 2.28, 46: 2.20, 47: 1.93, 48: 1.69,
+    72: 1.30, 73: 1.50, 74: 2.36, 75: 1.90, 76: 2.20, 77: 2.20, 78: 2.28, 79: 2.54, 80: 2.00,
+    14: 1.90, 32: 2.01, 50: 1.96, 82: 2.33,
+    57: 1.10, 58: 1.12, 59: 1.13, 60: 1.14, 61: 1.13, 62: 1.17, 63: 1.20, 64: 1.20, 65: 1.10,
+    66: 1.22, 67: 1.23, 68: 1.24, 69: 1.25, 70: 1.20, 71: 1.27,
+    89: 1.10, 90: 1.30, 91: 1.50, 92: 1.38, 93: 1.36, 94: 1.28,
+}
+
+
+def period_group(atomic_num: int):
+    """(period, group) of an element of the design space; lanthanides and actinides take group 3."""
+    z = atomic_num
+    if z in TM_3D: return 4, z - 18
+    if z in TM_4D: return 5, z - 36
+    if z in TM_5D: return 6, z - 68
+    if z in GROUP_IV_CHAIN: return {14: 3, 32: 4, 50: 5, 82: 6}[z], 14
+    if 57 <= z <= 71: return 6, 3
+    if 89 <= z <= 94: return 7, 3
+    raise ValueError(f"element {z} is not in the design space")
+
+
+def element_descriptors(atomic_num: int):
+    """[Z, period, group, Pauling electronegativity, covalent radius (A)] of an element."""
+    from ase.data import covalent_radii
+    p, g = period_group(atomic_num)
+    return [float(atomic_num), float(p), float(g), PAULING_EN[atomic_num], float(covalent_radii[atomic_num])]
+
+
 # --- Move-rule functions --------------------------------------------------
 
 
