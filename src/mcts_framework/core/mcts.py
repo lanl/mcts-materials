@@ -18,8 +18,9 @@ behavior is injected via four collaborators:
 
 import asyncio
 import logging
+import math
 import random
-from typing import TypeVar, Generic, List, Optional, Set, Dict, Any
+from typing import TypeVar, Generic, Hashable, List, Optional, Set, Dict, Any
 
 import numpy as np
 
@@ -70,6 +71,17 @@ class MCTS(Generic[M]):
         seed: Optional[int] = None,
         parallel_steps: int = 1,
         max_evaluations: Optional[int] = None,
+        progressive_widening: Optional[float] = None,
+        pw_base: float = 1.0,
+        expansion_prior: str = "none",
+        rollout_policy: str = "random",
+        rollout_epsilon: float = 0.2,
+        warm_start: int = 0,
+        terminate_exhausted: bool = False,
+        acquisition: str = "ucb",
+        acquisition_beta: float = 1.0,
+        model_refit_every: int = 10,
+        global_proposals: int = 0,
     ):
         """
         Args:
@@ -137,6 +149,63 @@ class MCTS(Generic[M]):
                 properties computed (tree nodes and rollout materials alike),
                 so a search can be limited by its true cost instead of by
                 iterations. None = no budget.
+            progressive_widening: Exponent alpha of progressive widening. A
+                node that has been visited N times may hold at most
+                ceil(pw_base * N**alpha) children (at least one); while it is
+                below that cap and still has candidates, selection stops there
+                and attaches one more child, otherwise selection descends into
+                an existing child. None (default) disables widening: every
+                candidate of a node is attached before selection descends,
+                which costs one evaluation (plus rollouts) per candidate before
+                the tree grows past that node.
+            pw_base: Coefficient of the widening cap.
+            expansion_prior: Which candidate a node attaches next.
+                - 'none' (default): the order generate_moves() returned them.
+                - 'stats': the candidate with the highest estimated reward.
+                  The estimate is the candidate's own reward if a rollout has
+                  already evaluated it, otherwise the mean reward of evaluated
+                  materials sharing each of its move tokens (see
+                  MoveGenerator.move_tokens), averaged over tokens; a token
+                  never seen counts as the mean of all evaluations. Ties and
+                  the absence of any statistics fall back to random order.
+            rollout_policy: How each step of a rollout walk is chosen.
+                - 'random' (default): uniformly among the moves.
+                - 'prior': the move with the highest estimated reward as
+                  above, except that with probability rollout_epsilon the step
+                  is uniform.
+            rollout_epsilon: Random-step probability of the 'prior' policy.
+            warm_start: Number of materials drawn uniformly from the design
+                space (MoveGenerator.random_material) and evaluated before
+                the first iteration. They count against max_evaluations and
+                are not attached to the tree; their rewards seed the estimates
+                behind expansion_prior and rollout_policy, so the search
+                starts from a sample of the whole space instead of the root's
+                neighborhood alone. 0 (default) = no warm start. Skipped when
+                the move generator cannot sample the space.
+            terminate_exhausted: Terminate a node once it has no children and
+                no candidate left to attach (every neighbor is already in the
+                tree) and has been simulated. Such a node has nothing more to
+                offer: its own reward is known and backed up. Without this
+                (default), the node stays selectable, and because its value
+                equals its subtree best on every visit the no-improvement
+                countdown never fires, so a high-value exhausted leaf is
+                selected again and again and the remaining iterations evaluate
+                only cached materials.
+            acquisition, acquisition_beta, model_refit_every: Settings of the
+                'model' expansion prior. The estimate of an unevaluated
+                material is an acquisition value of a Gaussian process fitted
+                to every reward computed so far over the move generator's
+                descriptors: 'ucb' = mean + beta * std, or 'ei' = expected
+                improvement over the best reward. The GP hyperparameters are
+                refitted every model_refit_every new points. Until three
+                rewards are known the estimate falls back to the token
+                statistics of 'stats'.
+            global_proposals: With the 'model' prior, the number of materials
+                drawn from the whole design space (MoveGenerator.all_materials)
+                by highest acquisition and added to a node's candidate
+                children when the node is first expanded, in addition to its
+                neighbors. These are jumps of the kind Bayesian optimization
+                makes; the tree records them as edges. 0 (default) = none.
         """
         if rollout_aggregation not in ("max", "mean"):
             raise ValueError(
@@ -153,6 +222,40 @@ class MCTS(Generic[M]):
         if max_evaluations is not None and max_evaluations < 1:
             raise ValueError(f"max_evaluations must be >= 1, got {max_evaluations}")
         self.max_evaluations = max_evaluations
+        if progressive_widening is not None and not 0.0 < progressive_widening <= 1.0:
+            raise ValueError(
+                f"progressive_widening must be in (0, 1], got {progressive_widening}"
+            )
+        if pw_base <= 0:
+            raise ValueError(f"pw_base must be > 0, got {pw_base}")
+        if expansion_prior not in ("none", "stats", "model"):
+            raise ValueError(
+                f"expansion_prior must be 'none', 'stats' or 'model', got {expansion_prior!r}"
+            )
+        if acquisition not in ("ucb", "ei"):
+            raise ValueError(f"acquisition must be 'ucb' or 'ei', got {acquisition!r}")
+        if global_proposals < 0:
+            raise ValueError(f"global_proposals must be >= 0, got {global_proposals}")
+        self.acquisition = acquisition
+        self.acquisition_beta = acquisition_beta
+        self.model_refit_every = model_refit_every
+        self.global_proposals = global_proposals
+        if rollout_policy not in ("random", "prior"):
+            raise ValueError(
+                f"rollout_policy must be 'random' or 'prior', got {rollout_policy!r}"
+            )
+        if not 0.0 <= rollout_epsilon <= 1.0:
+            raise ValueError(f"rollout_epsilon must be in [0, 1], got {rollout_epsilon}")
+        if warm_start < 0:
+            raise ValueError(f"warm_start must be >= 0, got {warm_start}")
+        self.warm_start = warm_start
+        self.warm_start_materials: List[M] = []
+        self.terminate_exhausted = terminate_exhausted
+        self.progressive_widening = progressive_widening
+        self.pw_base = pw_base
+        self.expansion_prior = expansion_prior
+        self.rollout_policy = rollout_policy
+        self.rollout_epsilon = rollout_epsilon
         self.exploration_constant = exploration_constant
         self.termination_limit = termination_limit
         self.rollout_depth = rollout_depth
@@ -190,6 +293,21 @@ class MCTS(Generic[M]):
         # Distinct materials evaluated so far (tree + rollouts): the search's cost.
         self.evaluations_history: List[int] = []
 
+        # Reward statistics behind the 'stats' expansion prior and the 'prior'
+        # rollout policy: every reward computed in this run (tree nodes and
+        # rollout materials alike), by identifier and summed per move token.
+        self._known_rewards: Dict[str, float] = {}
+        self._token_sum: Dict[Hashable, float] = {}
+        self._token_count: Dict[Hashable, int] = {}
+        self._reward_sum: float = 0.0
+        # 'model' prior: GP over descriptors, fitted lazily when an estimate is needed
+        self._model = None
+        self._model_n = 0                      # number of rewards the model was fitted to
+        self._feat_cache: Dict[str, np.ndarray] = {}
+        self._feat_mean: Optional[np.ndarray] = None
+        self._feat_std: Optional[np.ndarray] = None
+        self._space: Optional[List[M]] = None  # all materials (global proposals), enumerated once
+
     # ------------------------------------------------------------------ #
     # Public driver
     # ------------------------------------------------------------------ #
@@ -206,6 +324,9 @@ class MCTS(Generic[M]):
         """
         logger.info("Starting MCTS: %d iterations (mode=%s, parallel_steps=%d)",
                     iterations, self.search_mode, self.parallel_steps)
+
+        if self.warm_start > 0 and not self.warm_start_materials:
+            await self._warm_start()
 
         i = 0
         while i < iterations:
@@ -231,6 +352,34 @@ class MCTS(Generic[M]):
             len(self.visited_materials),
         )
 
+    async def _warm_start(self) -> None:
+        """
+        Evaluate `warm_start` distinct random materials before the tree search.
+
+        Draws are rejected when they repeat the root or an earlier draw; after
+        20 * warm_start rejected draws in a row the sample is taken as the
+        space being exhausted. The materials are evaluated together (so the
+        budget check sees them as one batch) and recorded in the reward
+        statistics; they are never attached to the tree.
+        """
+        draws: Dict[str, M] = {}
+        misses = 0
+        root_id = self.root.material.get_identifier()
+        while len(draws) < self.warm_start and misses < 20 * self.warm_start:
+            mat = self.move_generator.random_material(self.root.material, self._rng)
+            if mat is None:
+                logger.info("Warm start skipped: the move generator cannot sample the design space")
+                return
+            ident = mat.get_identifier()
+            if ident == root_id or ident in draws:
+                misses += 1
+                continue
+            draws[ident] = mat
+        self.warm_start_materials = list(draws.values())
+        if self.warm_start_materials:
+            await self._evaluate_rewards(self.warm_start_materials)
+        logger.info("Warm start: evaluated %d random materials", len(self.warm_start_materials))
+
     async def _run_step(self, i: int) -> None:
         """One iteration with error containment and history bookkeeping."""
         self.iteration = i
@@ -254,7 +403,7 @@ class MCTS(Generic[M]):
 
         # 2. Expansion: attach one new child if this node still expands.
         target = node
-        if node.expandable:
+        if self._can_expand(node):
             child = await self._expand(node)
             if child is not None:
                 target = child
@@ -268,6 +417,11 @@ class MCTS(Generic[M]):
         # 4. Backpropagation: push the (lookahead) value up the chain. This
         #    feeds selection and the subtree_best termination heuristic.
         self._backpropagate(chain, backprop_value)
+
+        # 4b. An exhausted leaf (no children, nothing left to attach) is a dead
+        #     end once simulated: exclude it from further selection.
+        if self.terminate_exhausted and target.is_leaf() and not target.expandable:
+            target.terminated = True
 
         # 5. Track the global best by the node's OWN reward, so the reported
         #    champion material and its reward always agree (rollout samples of
@@ -300,8 +454,10 @@ class MCTS(Generic[M]):
             chain: List[SearchNode[M]] = [current]
 
             dead_branch = False
-            # Descend while the node is fully expanded and has children.
-            while current.is_fully_expanded() and not current.is_leaf():
+            # Descend while the node attaches no more children now (it is
+            # fully expanded, or it is at its progressive-widening cap) and
+            # has children to descend into.
+            while not self._can_expand(current) and not current.is_leaf():
                 try:
                     current = self.selection_strategy.select_child(current)
                 except AllChildrenTerminated:
@@ -318,6 +474,136 @@ class MCTS(Generic[M]):
     # ------------------------------------------------------------------ #
     # Phase 2: Expansion
     # ------------------------------------------------------------------ #
+
+    def widening_cap(self, visits: int) -> int:
+        """Children a node with `visits` visits may hold under progressive widening."""
+        if self.progressive_widening is None:
+            return 1 << 62  # unlimited
+        return max(1, math.ceil(self.pw_base * max(visits, 1) ** self.progressive_widening))
+
+    def _can_expand(self, node: SearchNode[M]) -> bool:
+        """Whether selection should stop at `node` and attach a child now."""
+        if not node.expandable:
+            return False
+        return len(node.children) < self.widening_cap(node.visits)
+
+    # --- reward estimates (expansion prior / rollout policy) -------------
+
+    def _record_reward(self, material: M, reward: float) -> None:
+        """Record a computed reward by identifier and per move token (once per material)."""
+        ident = material.get_identifier()
+        if ident in self._known_rewards:
+            return
+        self._known_rewards[ident] = reward
+        self._reward_sum += reward
+        if self.expansion_prior == "model":
+            self._features(material)           # featurize now so the GP can be fitted to this reward
+        for token in self.move_generator.move_tokens(material):
+            self._token_sum[token] = self._token_sum.get(token, 0.0) + reward
+            self._token_count[token] = self._token_count.get(token, 0) + 1
+
+    # --- 'model' prior ------------------------------------------------
+
+    def _features(self, material: M) -> Optional[np.ndarray]:
+        """Standardized descriptors of a material (standardized over the design space when it can be
+        enumerated, otherwise over the materials seen so far); None if the generator has none."""
+        ident = material.get_identifier()
+        if ident in self._feat_cache:
+            return self._feat_cache[ident]
+        raw = self.move_generator.descriptors(material)
+        if raw is None:
+            return None
+        if self._feat_mean is None:
+            space = self._all_materials()
+            pop = np.array([self.move_generator.descriptors(m) for m in space]) if space else np.array([raw])
+            self._feat_mean = pop.mean(0); sd = pop.std(0); sd[sd == 0] = 1.0; self._feat_std = sd
+        f = (np.asarray(raw, float) - self._feat_mean) / self._feat_std
+        self._feat_cache[ident] = f
+        return f
+
+    def _all_materials(self) -> List[M]:
+        if self._space is None:
+            self._space = self.move_generator.all_materials(self.root.material) or []
+        return self._space
+
+    def _model_ready(self) -> bool:
+        """Fit (or refit) the GP to the known rewards; False while fewer than three are known or
+        the generator has no descriptors."""
+        if len(self._known_rewards) < 3:
+            return False
+        if self._model is not None and self._model_n == len(self._known_rewards):
+            return True
+        from .surrogate import GaussianProcess
+        X, y = [], []
+        for ident, r in self._known_rewards.items():
+            f = self._feat_cache.get(ident)
+            if f is None:
+                return False
+            X.append(f); y.append(r)
+        X = np.array(X); y = np.array(y)
+        if self._model is None:
+            self._model = GaussianProcess(X.shape[1], refit_every=self.model_refit_every)
+        self._model.fit(X, y); self._model_n = len(y)
+        return True
+
+    def _model_estimates(self, materials: List[M]) -> Optional[np.ndarray]:
+        """Acquisition values of materials under the GP, or None if the model is not usable."""
+        feats = [self._features(m) for m in materials]
+        if any(f is None for f in feats) or not self._model_ready():
+            return None
+        return self._model.acquisition(np.array(feats), self.acquisition, self.acquisition_beta)
+
+    def global_proposal_candidates(self, exclude: Set[str]) -> List[M]:
+        """The global_proposals unevaluated materials of the design space with the highest acquisition."""
+        if self.global_proposals <= 0:
+            return []
+        pool = [m for m in self._all_materials() if m.get_identifier() not in exclude and m.get_identifier() not in self._known_rewards]
+        if not pool:
+            return []
+        acq = self._model_estimates(pool)
+        if acq is None:
+            return []
+        order = np.argsort(-acq)[: self.global_proposals]
+        return [pool[i] for i in order]
+
+    def estimated_reward(self, material: M) -> Optional[float]:
+        """
+        Estimate of a material's reward from what the run has evaluated.
+
+        Its own reward if it has been evaluated; otherwise the mean, over its
+        move tokens, of the mean reward of evaluated materials sharing the
+        token, with unseen tokens counted at the overall mean reward. None
+        when nothing has been evaluated or the material has no tokens.
+        """
+        ident = material.get_identifier()
+        if ident in self._known_rewards:
+            return self._known_rewards[ident]
+        if not self._known_rewards:
+            return None
+        tokens = self.move_generator.move_tokens(material)
+        if not tokens:
+            return None
+        overall = self._reward_sum / len(self._known_rewards)
+        total = 0.0
+        for token in tokens:
+            n = self._token_count.get(token, 0)
+            total += self._token_sum[token] / n if n else overall
+        return total / len(tokens)
+
+    def _pick_by_estimate(self, materials: List[M]) -> M:
+        """The material with the highest estimated reward; random among ties and unknowns.
+        With the 'model' prior the estimate of an unevaluated material is the GP acquisition
+        (its exact reward when known); the token statistics are the fallback."""
+        if self.expansion_prior == "model":
+            unknown = [m for m in materials if m.get_identifier() not in self._known_rewards]
+            acq = self._model_estimates(unknown) if unknown else np.array([])
+            if acq is not None:
+                est = dict(zip((m.get_identifier() for m in unknown), acq))
+                scored = [(est.get(m.get_identifier(), self._known_rewards.get(m.get_identifier())), self._rng.random(), m) for m in materials]
+                return max(scored, key=lambda t: (t[0] if t[0] is not None else -np.inf, t[1]))[2]
+        scored = [(self.estimated_reward(m), self._rng.random(), m) for m in materials]
+        best = max(scored, key=lambda t: (t[0] if t[0] is not None else -np.inf, t[1]))
+        return best[2]
 
     async def _expand(self, node: SearchNode[M]) -> Optional[SearchNode[M]]:
         """
@@ -352,13 +638,21 @@ class MCTS(Generic[M]):
                 seen.add(ident)
                 fresh.append(mat)
 
+            # global proposals: the best unevaluated materials of the whole space under the model
+            if self.global_proposals > 0 and self.expansion_prior == "model":
+                exclude = set(seen) | self.visited_materials | {parent_id}
+                fresh += self.global_proposal_candidates(exclude)
             node.pending_children = fresh
 
         # Pop until we find a still-unclaimed material or run out. A candidate
         # generated earlier may have been attached elsewhere since; if so, skip
         # it (it now lives in the tree under its first owner).
         while node.pending_children:
-            child_material = node.pending_children.pop()
+            if self.expansion_prior in ("stats", "model"):
+                child_material = self._pick_by_estimate(node.pending_children)
+                node.pending_children.remove(child_material)
+            else:
+                child_material = node.pending_children.pop()
             ident = child_material.get_identifier()
             if ident in self.visited_materials:
                 continue  # claimed by another path since generation - skip
@@ -412,6 +706,7 @@ class MCTS(Generic[M]):
         node.properties = base_props
         own = self.reward_function.compute_reward(base_props)
         node.own_reward = own
+        self._record_reward(node.material, own)
 
         samples = [own]
         # With rollout_depth == 0 a walk can take no moves and only re-evaluates
@@ -454,7 +749,10 @@ class MCTS(Generic[M]):
             moves = self.move_generator.filter_invalid(moves)
             if not moves:
                 break
-            current = self._rng.choice(moves)
+            if self.rollout_policy == "prior" and self._rng.random() >= self.rollout_epsilon:
+                current = self._pick_by_estimate(moves)
+            else:
+                current = self._rng.choice(moves)
             path.append(current)
         return path or [material]
 
@@ -466,10 +764,13 @@ class MCTS(Generic[M]):
         props = await asyncio.gather(
             *(self.property_evaluator.evaluate(mat) for mat in unique.values())
         )
-        return {
+        rewards = {
             ident: self.reward_function.compute_reward(p)
             for ident, p in zip(unique, props)
         }
+        for ident, mat in unique.items():
+            self._record_reward(mat, rewards[ident])
+        return rewards
 
     async def _rollout_sample(self, material: M) -> float:
         """One random rollout, scored by the max reward along its walk."""

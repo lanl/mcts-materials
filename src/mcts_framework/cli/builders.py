@@ -65,6 +65,17 @@ def build_mcts(config: Config) -> MCTS:
         seed=config.mcts.seed,
         parallel_steps=config.mcts.parallel_steps,
         max_evaluations=config.mcts.max_evaluations,
+        progressive_widening=config.mcts.progressive_widening,
+        pw_base=config.mcts.pw_base,
+        expansion_prior=config.mcts.expansion_prior,
+        rollout_policy=config.mcts.rollout_policy,
+        rollout_epsilon=config.mcts.rollout_epsilon,
+        warm_start=config.mcts.warm_start,
+        terminate_exhausted=config.mcts.terminate_exhausted,
+        acquisition=config.mcts.acquisition,
+        acquisition_beta=config.mcts.acquisition_beta,
+        model_refit_every=config.mcts.model_refit_every,
+        global_proposals=config.mcts.global_proposals,
     )
 
 

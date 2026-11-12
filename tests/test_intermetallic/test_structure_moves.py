@@ -130,3 +130,46 @@ def test_moves_include_self_transition():
     children = gen.generate_moves(IntermetallicStructure(atoms))
     formulas = {c.get_formula() for c in children}
     assert atoms.get_chemical_formula() in formulas
+
+
+def test_move_tokens_are_the_three_site_occupants():
+    from ase.io import read
+    from pathlib import Path
+    cif = Path(__file__).resolve().parents[2] / "examples" / "mat_Pb6U1W6_sg191.cif"
+    s = IntermetallicStructure(read(str(cif)))
+    assert PeriodicTableMoves().move_tokens(s) == [("metal", 74), ("group_iv", 82), ("f_block", 92)]
+
+
+def test_random_material_draws_from_the_reachable_design_space():
+    import random
+    from ase.io import read
+    from pathlib import Path
+    from mcts_framework.intermetallic import elements
+    cif = Path(__file__).resolve().parents[2] / "examples" / "mat_Pb6U1W6_sg191.cif"
+    root = IntermetallicStructure(read(str(cif)))
+    rng = random.Random(0)
+    for mode, f_set in (("u_only", {92}), ("lanthanides_u", set(range(58, 72)) | {92})):
+        mg = PeriodicTableMoves(mode, 1, "wide")
+        seen = set()
+        for _ in range(60):
+            m = mg.random_material(root, rng)
+            toks = dict(mg.move_tokens(m))
+            assert toks["f_block"] in f_set and toks["group_iv"] in elements.GROUP_IV_CHAIN
+            assert toks["metal"] in set(elements.TM_3D) | set(elements.TM_4D) | set(elements.TM_5D)
+            assert len(m.atoms) == len(root.atoms)
+            seen.add(m.get_identifier())
+        assert len(seen) > 30   # draws vary
+
+
+def test_descriptors_and_all_materials():
+    from ase.io import read
+    from pathlib import Path
+    cif = Path(__file__).resolve().parents[2] / "examples" / "mat_Pb6U1W6_sg191.cif"
+    root = IntermetallicStructure(read(str(cif)))
+    mg = PeriodicTableMoves("lanthanides_u", 1, "wide")
+    d = mg.descriptors(root)
+    assert d.shape == (15,) and d[0] == 74 and d[5] == 82 and d[10] == 92     # W, Pb, U
+    assert d[1] == 6 and d[2] == 6 and d[6] == 6 and d[7] == 14 and d[11] == 7 and d[12] == 3
+    space = mg.all_materials(root)
+    assert len(space) == 27 * 4 * 15 and len({s.get_identifier() for s in space}) == 27 * 4 * 15
+    assert len(PeriodicTableMoves("u_only").all_materials(root)) == 108

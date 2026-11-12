@@ -96,6 +96,64 @@ class MCTSConfig(BaseModel):
         "explores more compounds for a better top-N list)",
     )
 
+    progressive_widening: Optional[float] = Field(
+        None, gt=0.0, le=1.0,
+        description="Progressive-widening exponent alpha: a node with N visits "
+        "holds at most ceil(pw_base * N**alpha) children, so selection can "
+        "descend before every candidate is attached. None = attach every "
+        "candidate before descending (classic expansion).",
+    )
+    pw_base: float = Field(
+        1.0, gt=0.0, description="Progressive-widening coefficient (children "
+        "allowed at one visit)",
+    )
+    expansion_prior: Literal["none", "stats", "model"] = Field(
+        "none",
+        description="Order in which a node's candidates are attached: 'none' "
+        "(the move generator's order), 'stats' (the candidate with the "
+        "highest estimated reward first: its known reward if a rollout has "
+        "evaluated it, otherwise the mean reward of evaluated materials that "
+        "share its move tokens) or 'model' (a Gaussian-process acquisition "
+        "over the move generator's descriptors, fitted to every reward "
+        "computed so far)",
+    )
+    acquisition: Literal["ucb", "ei"] = Field(
+        "ucb", description="Acquisition of the 'model' prior: mean + "
+        "acquisition_beta * std ('ucb') or expected improvement ('ei')",
+    )
+    acquisition_beta: float = Field(1.0, ge=0.0, description="Exploration weight of the 'ucb' acquisition")
+    model_refit_every: int = Field(10, ge=1, description="New rewards between refits of the GP hyperparameters")
+    global_proposals: int = Field(
+        0, ge=0,
+        description="With the 'model' prior: materials of the whole design "
+        "space with the highest acquisition added to a node's candidate "
+        "children when it is first expanded (0 = none)",
+    )
+    rollout_policy: Literal["random", "prior"] = Field(
+        "random",
+        description="How a rollout walk picks each step: 'random' (uniform) "
+        "or 'prior' (the move with the highest estimated reward, with "
+        "probability rollout_epsilon a uniform move instead)",
+    )
+    rollout_epsilon: float = Field(
+        0.2, ge=0.0, le=1.0, description="Random-step probability of the "
+        "'prior' rollout policy",
+    )
+    terminate_exhausted: bool = Field(
+        False,
+        description="Terminate a node once it has no children and no candidate "
+        "left to attach, so that a high-value exhausted leaf is not selected "
+        "again and again while the remaining iterations evaluate only cached "
+        "materials.",
+    )
+    warm_start: int = Field(
+        0, ge=0,
+        description="Materials drawn uniformly from the design space and "
+        "evaluated before the tree search (counted against the evaluation "
+        "budget, not attached to the tree). Their rewards seed the estimates "
+        "used by expansion_prior='stats' and rollout_policy='prior'. 0 = none.",
+    )
+
     seed: Optional[int] = Field(None, description="Random seed for reproducibility")
     parallel_steps: int = Field(
         1, ge=1,
