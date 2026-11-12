@@ -6,10 +6,10 @@ import pytest
 from mcts_framework.intermetallic.rewards import create_intermetallic_reward, ehull_reward
 
 
-def test_default_threshold_unchanged():
-    assert ehull_reward(0.05) == pytest.approx(0.0)
+def test_default_threshold_matches_paper():
+    assert ehull_reward(0.07) == pytest.approx(0.0)
     r = create_intermetallic_reward("ehull")
-    assert r.compute_reward({"e_above_hull": 0.05}) == pytest.approx(0.0)
+    assert r.compute_reward({"e_above_hull": 0.07}) == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize("method", ["ehull", "ehull_rdos_product_exponential"])
@@ -25,7 +25,7 @@ def test_threshold_moves_the_switch(method):
 def test_config_field_default():
     from mcts_framework.core.config import IntermetallicConfig
     fields = IntermetallicConfig.model_fields
-    assert fields["ehull_threshold"].default == 0.05
+    assert fields["ehull_threshold"].default == 0.07
 
 
 def test_select_gga_entries_skips_r2scan_and_mixed_documents():

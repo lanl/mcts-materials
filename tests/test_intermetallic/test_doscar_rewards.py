@@ -25,8 +25,8 @@ from mcts_framework.intermetallic.rewards import (
 
 
 def test_ehull_reward_boundary():
-    # At threshold 0.05, reward is 0
-    assert abs(ehull_reward(0.05)) < 1e-9
+    # At the default threshold 0.07, reward is 0
+    assert abs(ehull_reward(0.07)) < 1e-9
 
 
 def test_ehull_reward_stable_positive():
@@ -35,8 +35,8 @@ def test_ehull_reward_stable_positive():
 
 
 def test_ehull_reward_unstable_negative():
-    # At E_hull = 0.1 (unstable), reward ~ -1
-    assert ehull_reward(0.1) < -0.99
+    # At E_hull = 0.12 (unstable), reward ~ -1
+    assert ehull_reward(0.12) < -0.99
 
 
 def test_ehull_reward_monotonic_decreasing():
@@ -50,7 +50,7 @@ def test_ehull_reward_monotonic_decreasing():
 def test_ehull_reward_class():
     r = EhullReward()
     assert r.get_property_names() == ["e_above_hull"]
-    assert abs(r.compute_reward({"e_above_hull": 0.05})) < 1e-9
+    assert abs(r.compute_reward({"e_above_hull": 0.07})) < 1e-9
 
 
 # --- DoscarRewardLookup: formula conversion ------------------------------
@@ -200,7 +200,7 @@ def test_ehull_rdos_product_negative_when_unstable():
     product regardless of how favorable the rDOS is."""
     lookup = DoscarRewardLookup(peaks_file=None)
     r = EhullRdosProductReward(lookup)
-    # e_hull=0.2 (well above 0.05 threshold) -> ehull_term ~ -1
+    # e_hull=0.2 (well above the 0.07 threshold) -> ehull_term ~ -1
     props = {"e_above_hull": 0.2, "rdos": 5000.0}  # large positive rDOS
     reward = r.compute_reward(props)
     assert reward < 0.0  # negative despite strong rDOS

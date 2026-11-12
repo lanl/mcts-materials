@@ -177,7 +177,7 @@ class IntermetallicConfig(BaseModel):
     )
 
     ehull_threshold: float = Field(
-        0.05, gt=0,
+        0.07, gt=0,
         description="Stability threshold E_thres (eV/atom) of the tanh-based "
         "stability reward: r_S switches from e to 1/e over E_thres +/- 0.01 eV/atom.",
     )
