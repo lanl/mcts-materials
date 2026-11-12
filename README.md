@@ -187,7 +187,6 @@ Runnable example scripts:
 
 See [`intermetallic_study/README.md`](intermetallic_study/README.md) for details.
 
-Migrating from the original `mcts_crystal` code? See [MIGRATION.md](MIGRATION.md).
 
 ## Project structure
 
@@ -204,8 +203,7 @@ mcts_materials/          # repo root
 │   └── cli/            # `mcts-run` entry point (Typer): main, builders, results
 ├── tests/              # pytest suite (core is dependency-free; material tests skip if deps absent)
 ├── examples/           # Config templates, run_intermetallic.py, run_molecule.py, custom_material.py
-├── intermetallic_study/  # Production studies: u_only, lanthanide_u, sensitivity analyses
-└── reference/          # Kept-aside material (legacy sensitivity_studies/ for reference)
+└── intermetallic_study/  # The RM6X6 flat-band study: rankings, searches, baselines, tables, figures
 ```
 
 ## Design notes
@@ -230,15 +228,65 @@ so internal nodes don't inherit their best descendant's score. Likewise the
 run-level `best_node` / `best_reward` track `own_reward`, so the reported best
 material and its reward are always self-consistent.
 
-### Preserved physics
-The intermetallic rewards preserve the validated constants from `mcts_crystal`:
-`ehull_reward = -tanh(120·(E_hull − E_thres))` with `E_thres = 0.054 eV/atom` by default
-(`intermetallic.ehull_threshold`; the E_hull of UCr6Ge6, the least stable synthesized compound,
-on the GGA/GGA+U hull) and rDOS Gaussian width σ = 0.5 eV.
+### Reward
+The intermetallic stability reward is `r_S = exp(-tanh(120·(E_hull − E_thres)))` with
+`E_thres = 0.054 eV/atom` by default (`intermetallic.ehull_threshold`; the E_hull of
+UCr6Ge6, the least stable synthesized compound, on the GGA/GGA+U hull with MP2020
+corrections). The electronic-structure reward is the band-pass `r_DOS` below, and the
+total reward of the study is their product (`rollout_method: ehull_rdos_product_exponential`).
+
+### The search: expansion order, progressive widening, guided rollouts
+
+The defaults of `mcts:` are the settings of the RM6X6 flat-band study
+(Methods Sec. 4.1–4.2 of the manuscript). Each iteration selects a node by UCB1,
+attaches one candidate child, evaluates it with one rollout, and backpropagates
+the value. Four rules shape the tree:
+
+- **Informed expansion order** (`expansion_prior: stats`, default). A node
+  attaches first the candidate with the highest estimated reward: its reward if
+  a rollout already evaluated it, otherwise the mean, over the material's move
+  tokens (for intermetallics the three (site, element) pairs, see
+  `MoveGenerator.move_tokens`), of the mean reward of evaluated materials that
+  share the token. No descriptors, no model; before anything is evaluated the
+  order is random. `none` attaches in the move generator's order.
+- **Progressive widening** (`progressive_widening: 0.5`, `pw_base: 1.0`,
+  default). A node visited N times holds at most ⌈pw_base·N^α⌉ children; below
+  the cap selection stops and attaches, at the cap it descends. `null` restores
+  the classic rule (every candidate attached before descending), which costs one
+  evaluation plus rollouts per candidate before the tree can grow past a node.
+- **Guided rollouts** (`rollout_policy: prior`, `rollout_epsilon: 0.2`,
+  `rollout_depth: 1`, `n_rollout: 1`, default). Each rollout step takes the move
+  with the highest estimated reward with probability 1 − ε and a random move
+  otherwise. `random` restores uniform walks.
+- **Exhausted leaves** (`terminate_exhausted: true`, default). A leaf with no
+  candidate left to attach is terminated once evaluated; otherwise its value
+  equals its subtree best on every visit, the no-improvement countdown never
+  fires, and the remaining budget goes to cached materials.
+
+Two further options are exploratory and off by default: `warm_start: N`
+evaluates N random materials before the search to seed the estimates
+(`MoveGenerator.random_material`), and `expansion_prior: model` replaces the
+site means by a Gaussian-process acquisition over `MoveGenerator.descriptors`
+(`acquisition`, `acquisition_beta`, `model_refit_every`; `global_proposals: k`
+adds the k best unevaluated materials of the whole space,
+`MoveGenerator.all_materials`, to a node's candidates, i.e. Bayesian-optimization
+jumps as tree edges). In the study neither improved on the defaults
+(Supplementary Table S4).
+
+The cost of a search is its number of **evaluations** (tree nodes and rollout
+materials alike; `summary()["evaluations"]`, `evaluation_order.csv`), and
+`max_evaluations` stops a run at a budget. Compare settings at a fixed budget,
+not at a fixed number of iterations.
+
+### Reproducing the manuscript
+`intermetallic_study/` holds the complete pipeline (rankings, search
+configurations, the other search strategies, metrics, tables and figures) with
+a README listing the data files it reads;
+`examples/config_rm6x6_u_representative.yaml` is the representative uranium
+search of Table 1.
 
 ### Parallel search
-Three independent layers, all off by default so a default run reproduces the
-published sequential behaviour:
+Three independent layers, all off by default so that a default run is sequential:
 
 1. **Concurrent rollout evaluation (always on).** Each simulation draws its
    `n_rollout` walks first (same RNG sequence as before) and then evaluates
@@ -365,7 +413,7 @@ measures chemical distance from the starting composition. Because H_f is fixed
 by the template and Tc scales as H_f³, **choosing the template chooses the
 ceiling**.
 
-### Search behavior (matches current `mcts_crystal`)
+### Other search knobs
 - **`move_step`** (intermetallic): max positions a substitution may jump along
   the transition-metal / Group IV / lanthanide axes (default 1 = adjacent;
   3 = extended-range). This is the sole knob for jump distance.
@@ -373,16 +421,16 @@ ceiling**.
   lanthanide/U modes — `narrow` (Nd only, default) or `wide` (Nd/Gd/Er).
   `move_step` (jump distance) and `u_bridge` (U connectivity) are orthogonal;
   together they replace the old conflated `lanthanides_u_extended` mode.
-- **`n_rollout`** (core): number of random lookahead walks drawn per expanded
-  node, *in addition* to the node's own depth-0 evaluation (so a node is scored
-  over `n_rollout + 1` samples). `n_rollout=1` draws one walk; `n_rollout=0`
-  disables lookahead (value is just the node's own reward).
+- **`n_rollout`** (core): number of rollout walks drawn per expanded node, *in
+  addition* to the node's own depth-0 evaluation (so a node is scored over
+  `n_rollout + 1` samples). `n_rollout=0` disables lookahead (value is just the
+  node's own reward). The study uses one guided walk of one substitution.
 - **`rollout_aggregation`** (core): how a node's samples combine — `max`
   (default; best reward reachable within `rollout_depth` steps) or `mean`
   (unbiased average). Samples are undiscounted (evaluations are deterministic).
 - **max-along-walk rollouts**: a depth>0 rollout scores every composition along
-  the random walk and returns the max, extracting up to `rollout_depth`
-  candidate evaluations per walk instead of only the endpoint.
+  the walk and returns the max, extracting up to `rollout_depth` candidate
+  evaluations per walk instead of only the endpoint.
 
 ### `search_mode` — efficiency vs. breadth
 Controls when the run stops, trading evaluation cost (DFT/MACE calls) against

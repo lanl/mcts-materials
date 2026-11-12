@@ -62,22 +62,22 @@ class MCTS(Generic[M]):
         property_evaluator: PropertyEvaluator,
         reward_function: RewardFunction,
         selection_strategy: SelectionStrategy[M],
-        exploration_constant: float = 0.1,
-        termination_limit: int = 60,
+        exploration_constant: float = 0.3,
+        termination_limit: int = 100,
         rollout_depth: int = 1,
-        n_rollout: int = 5,
+        n_rollout: int = 1,
         rollout_aggregation: str = "max",
         search_mode: str = "fast",
         seed: Optional[int] = None,
         parallel_steps: int = 1,
         max_evaluations: Optional[int] = None,
-        progressive_widening: Optional[float] = None,
+        progressive_widening: Optional[float] = 0.5,
         pw_base: float = 1.0,
-        expansion_prior: str = "none",
-        rollout_policy: str = "random",
+        expansion_prior: str = "stats",
+        rollout_policy: str = "prior",
         rollout_epsilon: float = 0.2,
         warm_start: int = 0,
-        terminate_exhausted: bool = False,
+        terminate_exhausted: bool = True,
         acquisition: str = "ucb",
         acquisition_beta: float = 1.0,
         model_refit_every: int = 10,
@@ -154,14 +154,14 @@ class MCTS(Generic[M]):
                 ceil(pw_base * N**alpha) children (at least one); while it is
                 below that cap and still has candidates, selection stops there
                 and attaches one more child, otherwise selection descends into
-                an existing child. None (default) disables widening: every
+                an existing child. None disables widening: every
                 candidate of a node is attached before selection descends,
                 which costs one evaluation (plus rollouts) per candidate before
                 the tree grows past that node.
             pw_base: Coefficient of the widening cap.
             expansion_prior: Which candidate a node attaches next.
-                - 'none' (default): the order generate_moves() returned them.
-                - 'stats': the candidate with the highest estimated reward.
+                - 'none': the order generate_moves() returned them.
+                - 'stats' (default): the candidate with the highest estimated reward.
                   The estimate is the candidate's own reward if a rollout has
                   already evaluated it, otherwise the mean reward of evaluated
                   materials sharing each of its move tokens (see
@@ -169,8 +169,8 @@ class MCTS(Generic[M]):
                   never seen counts as the mean of all evaluations. Ties and
                   the absence of any statistics fall back to random order.
             rollout_policy: How each step of a rollout walk is chosen.
-                - 'random' (default): uniformly among the moves.
-                - 'prior': the move with the highest estimated reward as
+                - 'random': uniformly among the moves.
+                - 'prior' (default): the move with the highest estimated reward as
                   above, except that with probability rollout_epsilon the step
                   is uniform.
             rollout_epsilon: Random-step probability of the 'prior' policy.
@@ -185,8 +185,8 @@ class MCTS(Generic[M]):
             terminate_exhausted: Terminate a node once it has no children and
                 no candidate left to attach (every neighbor is already in the
                 tree) and has been simulated. Such a node has nothing more to
-                offer: its own reward is known and backed up. Without this
-                (default), the node stays selectable, and because its value
+                offer: its own reward is known and backed up. Without this,
+                the node stays selectable, and because its value
                 equals its subtree best on every visit the no-improvement
                 countdown never fires, so a high-value exhausted leaf is
                 selected again and again and the remaining iterations evaluate

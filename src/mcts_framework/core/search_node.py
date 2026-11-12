@@ -51,8 +51,8 @@ class SearchNode(Generic[M]):
     def __init__(
         self,
         material: M,
-        exploration_constant: float = 0.1,
-        termination_limit: int = 60,
+        exploration_constant: float = 0.3,
+        termination_limit: int = 100,
     ):
         """
         Initialize search node.

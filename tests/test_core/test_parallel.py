@@ -73,7 +73,7 @@ async def test_concurrent_evaluate_of_different_materials_overlaps():
 @pytest.mark.asyncio
 async def test_rollout_walks_evaluate_concurrently():
     ev = SlowEvaluator(target=5)
-    mcts = make_mcts(ev, n_rollout=4, rollout_depth=2)
+    mcts = make_mcts(ev, n_rollout=4, rollout_depth=2, rollout_policy="random")   # guided walks would all take the same step
     await mcts.run(iterations=3)
     assert ev.max_active >= 2
 

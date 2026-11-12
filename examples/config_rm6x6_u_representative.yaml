@@ -1,0 +1,47 @@
+# The representative uranium-space search of the RM6X6 flat-band manuscript
+# (Table 1, Figs. 4-5): start UCr6Sn6, budget 54 evaluations (half the space).
+#
+#   mcts-run run --config examples/config_rm6x6_u_representative.yaml
+#
+# Reads every property from cached data, so no Materials Project key, MACE or
+# DFT calculation is needed: `cache_path` holds the MACE E_hull of all 1,728
+# compositions and `doscar_data_path` the band-pass r_DOS from the DFT DOS.
+# Both files are read from intermetallic_study/data/ (see its README for how
+# to obtain them). The `mcts:` block spells out the defaults for reference.
+
+material_type: intermetallic
+
+mcts:
+  iterations: 3000
+  max_evaluations: 54           # the evaluation budget: tree nodes and rollout compounds alike
+  exploration_constant: 0.3
+  termination_limit: 100
+  selection_mode: ucb1
+  progressive_widening: 0.5     # a node visited N times holds at most ceil(pw_base * N^0.5) children
+  pw_base: 1.0
+  expansion_prior: stats        # attach the candidate with the highest estimated reward first
+  rollout_depth: 1              # one guided substitution per attached node
+  n_rollout: 1
+  rollout_policy: prior
+  rollout_epsilon: 0.2
+  rollout_aggregation: max
+  terminate_exhausted: true
+  search_mode: thorough
+  seed: 0
+  output_dir: mcts_results_rm6x6_u_representative
+
+intermetallic:
+  structure_path: examples/mat_Pb6U1W6_sg191.cif
+  transition_metal: Cr
+  group_iv: Sn
+  f_block_mode: u_only
+  move_step: 1
+  u_bridge: wide
+  rollout_method: ehull_rdos_product_exponential   # r = exp(-tanh(120 (E_hull - E_thres))) * r_DOS
+  ehull_threshold: 0.054
+  beta: 1.0
+  gamma: 1.0
+  rdos_method: bandpass
+  doscar_data_path: intermetallic_study/data/rdos_bandpass_RE_U.csv
+  cache_path: intermetallic_study/data/mace_cache_v3_gga.csv
+  mp_api_key: null

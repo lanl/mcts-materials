@@ -102,7 +102,7 @@ def make(target=(4, 4), start=(0, 0), **kw) -> MCTS:
 def test_widening_cap_values():
     m = make(progressive_widening=0.5, pw_base=2.0, n_rollout=0)
     assert [m.widening_cap(n) for n in (0, 1, 2, 4, 9, 16, 100)] == [2, 2, 3, 4, 6, 8, 20]
-    assert make(n_rollout=0).widening_cap(1) > 10**6  # off: unlimited
+    assert make(n_rollout=0, progressive_widening=None).widening_cap(1) > 10**6  # off: unlimited
 
 
 def test_widening_cap_is_at_least_one():
@@ -128,7 +128,7 @@ def test_invalid_widening_options_rejected():
 
 @pytest.mark.asyncio
 async def test_classic_expansion_attaches_every_child_before_descending():
-    m = make(n_rollout=0, rollout_depth=0)
+    m = make(n_rollout=0, rollout_depth=0, progressive_widening=None, expansion_prior="none")
     await m.run(iterations=8)
     # root (0,0) has 8 neighbors: after 8 iterations they are all attached
     # and no grandchild exists yet
@@ -162,7 +162,7 @@ async def test_widening_keeps_materials_unique_and_consistent():
 
 @pytest.mark.asyncio
 async def test_estimate_is_none_before_any_evaluation_and_exact_after():
-    m = make(expansion_prior="stats", n_rollout=0, rollout_depth=0)
+    m = make(expansion_prior="stats", n_rollout=0, rollout_depth=0, progressive_widening=None)
     assert m.estimated_reward(GridMaterial(1, 1)) is None
     await m.run(iterations=3)
     child = m.root.children[0]
@@ -186,7 +186,7 @@ async def test_estimate_averages_token_means():
 
 @pytest.mark.asyncio
 async def test_stats_prior_attaches_the_best_estimated_candidate_first():
-    m = make(expansion_prior="stats", n_rollout=0, rollout_depth=0)
+    m = make(expansion_prior="stats", n_rollout=0, rollout_depth=0, progressive_widening=None)
     # pretend the run has learned that larger x and y are better
     for x in range(-2, 3):
         m._record_reward(GridMaterial(x, 9), float(x))
@@ -208,9 +208,9 @@ async def test_prior_rollout_walks_toward_better_estimates():
 @pytest.mark.asyncio
 async def test_defaults_do_not_change_the_search():
     """With every option off, the run is identical to the classic algorithm."""
-    a = make(n_rollout=2, rollout_depth=2, seed=3)
+    a = make(n_rollout=2, rollout_depth=2, seed=3, expansion_prior="none", rollout_policy="random", progressive_widening=None, terminate_exhausted=False)
     b = make(n_rollout=2, rollout_depth=2, seed=3, expansion_prior="none",
-             rollout_policy="random", progressive_widening=None)
+             rollout_policy="random", progressive_widening=None, terminate_exhausted=False)
     await a.run(iterations=60)
     await b.run(iterations=60)
     assert [n.material.get_identifier() for n in a.all_nodes()] == \
@@ -230,9 +230,9 @@ async def test_widening_with_prior_reaches_the_target_with_fewer_evaluations():
 
     classic, improved = [], []
     for seed in range(4):
-        a = make(target=(5, 5), start=(-5, -5), n_rollout=2, rollout_depth=2, seed=seed)
+        a = make(target=(5, 5), start=(-5, -5), n_rollout=2, rollout_depth=2, seed=seed, progressive_widening=None, expansion_prior="none", rollout_policy="random", terminate_exhausted=False)
         b = make(target=(5, 5), start=(-5, -5), n_rollout=2, rollout_depth=2, seed=seed,
-                 progressive_widening=0.5, pw_base=2.0, expansion_prior="stats", rollout_policy="prior")
+                 progressive_widening=0.5, pw_base=2.0, expansion_prior="stats", rollout_policy="prior", terminate_exhausted=False)
         await a.run(iterations=400)
         await b.run(iterations=400)
         classic.append(evals_to_target(a))
@@ -293,7 +293,7 @@ def test_warm_start_validation():
 async def test_exhausted_leaves_are_terminated_and_the_search_keeps_evaluating():
     """An exhausted leaf (no children, nothing left to attach) is terminated once simulated, so the
     search does not keep re-selecting it; the run then evaluates at least as many materials."""
-    a = make(target=(4, 4), start=(0, 0), n_rollout=0, rollout_depth=0, exploration_constant=0.3, seed=1)
+    a = make(target=(4, 4), start=(0, 0), n_rollout=0, rollout_depth=0, exploration_constant=0.3, seed=1, terminate_exhausted=False)
     b = make(target=(4, 4), start=(0, 0), n_rollout=0, rollout_depth=0, exploration_constant=0.3, seed=1, terminate_exhausted=True)
     await a.run(iterations=300)
     await b.run(iterations=300)
@@ -305,7 +305,7 @@ async def test_exhausted_leaves_are_terminated_and_the_search_keeps_evaluating()
 
 
 def test_terminate_exhausted_config_default():
-    assert MCTSConfig().terminate_exhausted is False and MCTSConfig(terminate_exhausted=True).terminate_exhausted is True
+    assert MCTSConfig().terminate_exhausted is True and MCTSConfig(terminate_exhausted=False).terminate_exhausted is False
 
 
 # --- model prior and global proposals --------------------------------------------
@@ -313,7 +313,7 @@ def test_terminate_exhausted_config_default():
 
 @pytest.mark.asyncio
 async def test_model_prior_estimates_follow_the_gp():
-    m = make(expansion_prior="model", n_rollout=0, rollout_depth=0)
+    m = make(expansion_prior="model", n_rollout=0, rollout_depth=0, progressive_widening=None)
     assert m._model_estimates([GridMaterial(1, 1)]) is None          # nothing evaluated yet
     for x in range(-3, 4):
         m._record_reward(GridMaterial(x, 0), -abs(x - 2.0))         # peak at x = 2
@@ -356,9 +356,9 @@ def test_model_prior_validation():
 
 def test_config_defaults_and_validation():
     cfg = MCTSConfig()
-    assert cfg.progressive_widening is None and cfg.pw_base == 1.0
-    assert cfg.expansion_prior == "none" and cfg.rollout_policy == "random"
-    assert MCTSConfig(progressive_widening=0.5, expansion_prior="stats", rollout_policy="prior").pw_base == 1.0
+    assert cfg.progressive_widening == 0.5 and cfg.pw_base == 1.0
+    assert cfg.expansion_prior == "stats" and cfg.rollout_policy == "prior"
+    assert MCTSConfig(progressive_widening=None, expansion_prior="none", rollout_policy="random").pw_base == 1.0
     with pytest.raises(ValidationError):
         MCTSConfig(progressive_widening=0.0)
     with pytest.raises(ValidationError):

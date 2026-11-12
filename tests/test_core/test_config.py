@@ -23,9 +23,11 @@ from mcts_framework.core.config import (
 def test_mcts_config_defaults():
     cfg = MCTSConfig()
     assert cfg.iterations == 1000
-    assert cfg.exploration_constant == 0.1
+    assert cfg.exploration_constant == 0.3
     assert cfg.selection_mode == "ucb1"
-    assert cfg.n_rollout == 5
+    assert cfg.n_rollout == 1
+    assert cfg.progressive_widening == 0.5 and cfg.expansion_prior == "stats"
+    assert cfg.rollout_policy == "prior" and cfg.terminate_exhausted is True
     assert cfg.rollout_aggregation == "max"  # matches mcts_crystal default
 
 

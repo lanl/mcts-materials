@@ -19,9 +19,12 @@ regardless.
 
 ## Current status
 
-Test suite: **231 passed** (`pytest` from the repo root). Skips only when
-optional deps (RDKit) or example data files are absent; with `[all]` installed
-the full suite runs.
+Test suite: **467 passed** (`pytest` from the repo root; 34 skipped without
+pymatgen / RDKit). The search of the RM6X6 manuscript (progressive widening,
+informed expansion order, guided single-substitution rollouts, exhausted-leaf
+termination; `E_thres = 0.054 eV/atom` on the GGA/GGA+U hull) is the default
+configuration; `intermetallic_study/` reproduces the study. The model prior and
+global proposals (`core/surrogate.py`) are exploratory options.
 
 **Layout note:** `mcts-framework/` was promoted to the repo root — the package
 now lives at `src/mcts_framework/`, tests at `tests/`, examples at `examples/`,

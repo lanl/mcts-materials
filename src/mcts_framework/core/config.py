@@ -52,7 +52,15 @@ UBridge = Literal["narrow", "wide"]
 
 
 class MCTSConfig(BaseModel):
-    """Material-agnostic MCTS search hyperparameters."""
+    """Material-agnostic MCTS search hyperparameters.
+
+    The defaults are the settings of the RM6X6 flat-band study (progressive
+    widening with alpha = 0.5, the 'stats' expansion order, one guided rollout
+    of one substitution, exhausted-leaf termination, c = 0.3). The classic
+    expansion rule is recovered with progressive_widening: null,
+    expansion_prior: none, rollout_policy: random and terminate_exhausted:
+    false.
+    """
 
     iterations: int = Field(1000, ge=1, description="Number of MCTS iterations")
     max_evaluations: Optional[int] = Field(
@@ -61,10 +69,10 @@ class MCTSConfig(BaseModel):
         "have been evaluated (tree nodes and rollout materials). None = no budget.",
     )
     exploration_constant: float = Field(
-        0.1, ge=0.0, description="UCB/PUCT exploration weight (c)"
+        0.3, ge=0.0, description="UCB/PUCT exploration weight (c)"
     )
     termination_limit: int = Field(
-        60, ge=1, description="Visits without improvement before node termination"
+        100, ge=1, description="Visits without improvement before node termination"
     )
 
     selection_mode: Literal["ucb1", "puct", "epsilon_greedy", "boltzmann"] = "ucb1"
@@ -75,11 +83,11 @@ class MCTSConfig(BaseModel):
         1.0, gt=0.0, description="Softmax temperature (boltzmann)"
     )
 
-    rollout_depth: int = Field(1, ge=0, description="Random steps per rollout sample")
+    rollout_depth: int = Field(1, ge=0, description="Substitution steps per rollout walk")
     n_rollout: int = Field(
-        5, ge=0,
-        description="Random lookahead walks per expansion, additional to the "
-        "node's own evaluation (0 = no lookahead; value is the node's reward)",
+        1, ge=0,
+        description="Rollout walks per expansion, additional to the node's own "
+        "evaluation (0 = no lookahead; value is the node's reward)",
     )
     rollout_aggregation: Literal["max", "mean"] = Field(
         "max",
@@ -97,7 +105,7 @@ class MCTSConfig(BaseModel):
     )
 
     progressive_widening: Optional[float] = Field(
-        None, gt=0.0, le=1.0,
+        0.5, gt=0.0, le=1.0,
         description="Progressive-widening exponent alpha: a node with N visits "
         "holds at most ceil(pw_base * N**alpha) children, so selection can "
         "descend before every candidate is attached. None = attach every "
@@ -108,7 +116,7 @@ class MCTSConfig(BaseModel):
         "allowed at one visit)",
     )
     expansion_prior: Literal["none", "stats", "model"] = Field(
-        "none",
+        "stats",
         description="Order in which a node's candidates are attached: 'none' "
         "(the move generator's order), 'stats' (the candidate with the "
         "highest estimated reward first: its known reward if a rollout has "
@@ -130,7 +138,7 @@ class MCTSConfig(BaseModel):
         "children when it is first expanded (0 = none)",
     )
     rollout_policy: Literal["random", "prior"] = Field(
-        "random",
+        "prior",
         description="How a rollout walk picks each step: 'random' (uniform) "
         "or 'prior' (the move with the highest estimated reward, with "
         "probability rollout_epsilon a uniform move instead)",
@@ -140,7 +148,7 @@ class MCTSConfig(BaseModel):
         "'prior' rollout policy",
     )
     terminate_exhausted: bool = Field(
-        False,
+        True,
         description="Terminate a node once it has no children and no candidate "
         "left to attach, so that a high-value exhausted leaf is not selected "
         "again and again while the remaining iterations evaluate only cached "
@@ -308,9 +316,15 @@ class IntermetallicConfig(BaseModel):
             "ehull", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"
         )
         if needs_key and not self.mp_api_key:
-            raise ValueError(
-                f"rollout_method={self.rollout_method!r} requires an MP API key: "
-                f"set mp_api_key in the config or export MP_API_KEY"
+            if not self.cache_path:
+                raise ValueError(
+                    f"rollout_method={self.rollout_method!r} requires an MP API key: "
+                    f"set mp_api_key in the config or export MP_API_KEY (or give a "
+                    f"cache_path holding e_above_hull for the compounds to be searched)"
+                )
+            warnings.warn(
+                "No MP API key: e_above_hull is read from cache_path, and a compound "
+                "absent from the cache is scored by its formation energy instead."
             )
         needs_doscar = self.rollout_method in (
             "rdos", "ehull_rdos", "ehull_rdos_product", "ehull_rdos_product_shifted", "ehull_rdos_product_offset", "ehull_rdos_product_exponential", "ehull_rdos_product_tanh_shifted", "ehull_rdos_product_direct_exponential"
