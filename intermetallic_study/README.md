@@ -1,307 +1,86 @@
-# MCTS Product-Mode Studies
-
-This directory contains configurations and scripts for running MCTS studies on intermetallic compounds, including both production runs and systematic hyperparameter sensitivity analyses.
-
-## Studies
-
-### 1. U-Only Study (`u_only/`)
-
-**Design space**: 108 U-containing compounds (no other f-block elements)  
-**Starting composition**: Cr6Sn6U  
-**Iterations**: 1,000 per seed  
-**Seeds**: 0–4 (5 independent runs)
-
-**Key parameters**:
-- `f_block_mode`: `u_only`
-- `rollout_method`: `ehull_rdos_product` (multiplicative: r_Ehull × r_DOS)
-- `gamma`: 1.0 (raw, unnormalized r_DOS)
-- `rollout_depth`: 3
-- `n_rollout`: 1
-- `rollout_aggregation`: max
-- `termination_limit`: 25
-
-### 2. Lanthanide+U Study (`lanthanide_u/`)
-
-**Design space**: 1,620 lanthanide+U compounds (La–Lu + U)  
-**Starting composition**: Cr6Sn6Tb (Tb instead of U)  
-**Iterations**: 500 per seed  
-**Seeds**: 0–4 (5 independent runs)
-
-**Key parameters**:
-- `f_block_mode`: `lanthanides_u`
-- `move_step`: 3 (extended-range moves)
-- `rollout_method`: `ehull_rdos_product`
-- `gamma`: 0.00039742998860786596 (normalized = 1 / max r_DOS across U-only space)
-- `rollout_depth`: 2
-- `n_rollout`: 2
-- `rollout_aggregation`: max
-- `termination_limit`: 25
-
-### 3. Sensitivity Study (`sensitivity/`)
-
-**Objective**: Systematic hyperparameter sweeps to understand MCTS performance on the U-only design space
-
-**Four sensitivity dimensions**:
-1. **Starting Material** (5 compositions): Cr₆Sn₆U, Fe₆Sn₆U, Cu₆Sn₆U, Ni₆Ge₆U, W₆Pb₆U
-2. **Termination Limit** (5 values): 25, 50, 100, 200, 500 visits without improvement
-3. **Rollout Depth** (4 values): 1, 2, 3, 5 random moves per rollout
-4. **Move Step** (4 values): 1, 2, 3, 5 periodic table jumps
-
-**Design space**: 108 U-only compounds  
-**Iterations**: 1,000 per run  
-**Baseline parameters**: exploration_constant=1.41, termination_limit=100, rollout_depth=3, move_step=1
-
-Each study varies one parameter while holding others at baseline. Results include:
-- Learning curves: unique compounds explored vs. best reward found
-- 3"×3" publication-quality figures (300 DPI)
-- Full YAML configs for exact replication
-
-See [`sensitivity/README.md`](sensitivity/README.md) for details.
-
-## Directory Structure
-
-```
-intermetallic_study/
-├── u_only/
-│   ├── configs/          # YAML configs for seeds 0-4
-│   ├── results/          # Output directories for each seed
-│   ├── figures/          # Generated publication figures
-│   ├── run_all_seeds.sh  # Run all 5 seeds sequentially
-│   └── generate_figures.py  # Generate product-mode figures
-├── lanthanide_u/
-│   ├── configs/
-│   ├── results/
-│   ├── figures/
-│   ├── run_all_seeds.sh
-│   └── generate_figures.py
-├── sensitivity/
-│   ├── starting_material/
-│   │   ├── configs/      # 5 YAML configs (cr_sn, fe_sn, cu_sn, ni_ge, w_pb)
-│   │   └── run_all.sh    # Run all 5 configs
-│   ├── termination_limit/
-│   │   ├── configs/      # 5 YAML configs (25, 50, 100, 200, 500)
-│   │   └── run_all.sh
-│   ├── rollout_depth/
-│   │   ├── configs/      # 4 YAML configs (1, 2, 3, 5)
-│   │   └── run_all.sh
-│   ├── move_step/
-│   │   ├── configs/      # 4 YAML configs (1, 2, 3, 5)
-│   │   └── run_all.sh
-│   ├── figures/          # 4 sensitivity plots (3"×3" each)
-│   ├── plot_sensitivity.py  # Generate all 4 figures
-│   ├── .gitignore        # Exclude results/, logs, figures/
-│   └── README.md         # Detailed sensitivity study documentation
-└── README.md             # This file
-```
-
-## Running the Studies
-
-### Prerequisites
-
-1. Install the framework with required dependencies:
-   ```bash
-   pip install -e ".[intermetallic,viz]"
-   # or with uv:
-   uv sync --extra intermetallic --extra viz
-   ```
-
-2. Ensure data files are present in repo root:
-   - `high_throughput_mace_results.full.csv` (MACE energy cache)
-   - `doscar_peaks_data_with_U.csv` (DOSCAR r_DOS data)
-
-3. Materials Project API key (optional, for live MP queries):
-   ```bash
-   export MP_API_KEY="your-key-here"
-   ```
-
-### Running U-Only Study
-
-```bash
-cd study/u_only
-
-# Run all 5 seeds (takes ~hours depending on hardware)
-bash run_all_seeds.sh
-
-# Or run individual seeds
-mcts-run run --config configs/seed_0.yaml
-mcts-run run --config configs/seed_1.yaml
-# ... etc
-
-# Generate figures after all seeds complete
-python generate_figures.py
-```
-
-### Running Lanthanide+U Study
-
-```bash
-cd study/lanthanide_u
-
-# Run all 5 seeds
-bash run_all_seeds.sh
-
-# Generate figures
-python generate_figures.py
-```
-
-### Running Sensitivity Studies
-
-```bash
-cd sensitivity
-
-# Run all 18 sensitivity runs (4 studies × 4-5 configs each)
-# Option 1: Run all studies in parallel (recommended, takes ~30-45 minutes)
-cd starting_material && ./run_all.sh &
-cd ../termination_limit && ./run_all.sh &
-cd ../rollout_depth && ./run_all.sh &
-cd ../move_step && ./run_all.sh &
-wait
-
-# Option 2: Run individual studies sequentially
-cd starting_material && ./run_all.sh
-cd ../termination_limit && ./run_all.sh
-cd ../rollout_depth && ./run_all.sh
-cd ../move_step && ./run_all.sh
-
-# Generate all 4 sensitivity figures after runs complete
-cd ..
-python3 plot_sensitivity.py
-```
-
-Results appear in `sensitivity/figures/`:
-- `starting_material_sensitivity.png`
-- `termination_limit_sensitivity.png`
-- `rollout_depth_sensitivity.png`
-- `move_step_sensitivity.png`
-
-## Output Files
-
-Each seed run produces (in `results/seed_N/`):
-- `summary.json` - Best material, reward, tree statistics
-- `best_materials.csv` - Top candidates with properties
-- `convergence.csv` - Per-iteration best reward history
-- `tree.json` - Complete search tree structure
-- `config.yaml` - Exact config used (MP key redacted)
-- `report.txt` - Human-readable analysis
-
-After running `generate_figures.py`, the `figures/` directory contains:
-- U-only: `ehull_vs_rdos_product.png`, `radial_tree_composite_product.png`
-- Lanthanide+U: `ehull_vs_rdos_product_with_experimental.png`
-
-## Analysis
-
-### Pooling Results Across Seeds
-
-To pool and deduplicate compounds across all 5 seeds:
-
-```python
-import pandas as pd
-from pathlib import Path
-
-study_dir = Path("study/u_only/results")
-frames = []
-for seed in range(5):
-    csv = study_dir / f"seed_{seed}" / "best_materials.csv"
-    if csv.exists():
-        df = pd.read_csv(csv)
-        frames.append(df)
-
-pooled = pd.concat(frames, ignore_index=True)
-pooled = pooled.sort_values("reward").drop_duplicates(subset=["formula"], keep="first")
-print(f"Total unique compounds discovered: {len(pooled)}")
-print(pooled.head(15))  # Top 15
-```
-
-### Convergence Analysis
-
-Compare convergence across seeds:
-
-```python
-import matplotlib.pyplot as plt
-
-fig, ax = plt.subplots()
-for seed in range(5):
-    csv = study_dir / f"seed_{seed}" / "convergence.csv"
-    df = pd.read_csv(csv)
-    ax.plot(df["iteration"], df["best_reward"], label=f"Seed {seed}", alpha=0.7)
-
-ax.set_xlabel("Iteration")
-ax.set_ylabel("Best Product Reward")
-ax.legend()
-plt.savefig("convergence_comparison.png", dpi=300)
-```
-
-## Computational Requirements
-
-### U-Only Study
-- **Design space**: 108 compounds
-- **Per seed**: ~1,000 iterations × ~5 expansions = ~5,000 evaluations
-- **Time estimate**: 2-4 hours per seed (depends on MACE/MP cache hits)
-- **Total**: 10-20 hours for all 5 seeds
-
-### Lanthanide+U Study
-- **Design space**: 1,620 compounds
-- **Per seed**: ~500 iterations × ~10 expansions = ~5,000 evaluations
-- **Time estimate**: 2-4 hours per seed
-- **Total**: 10-20 hours for all 5 seeds
-
-**Parallelization**: Seeds are independent and can run in parallel if you have multiple cores:
-```bash
-# Run 5 seeds in parallel (requires 5+ cores)
-for seed in 0 1 2 3 4; do
-    mcts-run run --config configs/seed_${seed}.yaml &
-done
-wait
-```
-
-## Differences from Original `mcts_crystal` Studies
-
-### Preserved
-- ✅ Exact reward functions (ehull_reward, rDOS Gaussian σ=0.5)
-- ✅ Same design space definitions (U-only, lanthanide+U)
-- ✅ Identical search parameters (depths, aggregation, termination)
-- ✅ Same starting compositions
-- ✅ Product-mode gamma values
-
-### Improved
-- ✅ Cleaner config management (YAML, not CLI args)
-- ✅ Automatic result serialization (tree.json, not pickle)
-- ✅ Reproducible figure generation (from saved configs)
-- ✅ No per-study code duplication
-- ✅ Type-safe configuration (Pydantic validation)
-
-## Troubleshooting
-
-**"No module named mcts_framework"**
-- Install the package: `pip install -e .` or `uv sync`
-
-**"Materials Project API key required"**
-- Set environment variable: `export MP_API_KEY="your-key"`
-- Or add to configs: `mp_api_key: "your-key"` (not recommended for version control)
-
-**"MACE cache file not found"**
-- Ensure `high_throughput_mace_results.full.csv` is in repo root
-- Or update `cache_path` in config YAML files
-
-**"DOSCAR data file not found"**
-- Ensure `doscar_peaks_data_with_U.csv` is in repo root
-- Or update `doscar_data_path` in config YAML files
-
-**Runs are slow**
-- First run builds caches; subsequent runs are faster
-- MACE cache hits avoid expensive relaxations
-- Consider using fewer `n_rollout` or shallower `rollout_depth` for testing
-
-## Citation
-
-If using these studies for publication, cite:
-- The `mcts_framework` package
-- The original `mcts_crystal` paper (if comparing)
-- Materials Project (if using MP energies)
-- MACE force field
-
-## Contact
-
-For questions about the study setup or results, see:
-- Framework README: `../../README.md`
-- Product figures README: `../../src/mcts_framework/postprocessing/README_PRODUCT_FIGURES.md`
-- Original study notes: `../../PROGRESS.md`
+# RM6X6 flat-band study
+
+The scripts that produce every result, table and figure of the manuscript
+*Machine Learning-Accelerated Monte Carlo Tree Search for Inverse Design of
+Quantum Materials* from the search code in `src/mcts_framework`. The study
+runs with `mcts-run` and the cached property data described below; it needs
+no Materials Project key and no DFT or MACE calculation of its own.
+
+Everything here is read relative to this directory (`STUDY`) and the
+repository root (`MCTS_REPO`, default: the parent of this directory).
+
+## Data files (not in the repository)
+
+Place these in `data/`. They are released with the manuscript; until then
+they are available from the authors.
+
+| File | Content | Used by |
+|---|---|---|
+| `mace_cache_v3_gga.csv` | MACE-MP-0 relaxed energies, `e_form` and `e_above_hull` (GGA/GGA+U hull with MP2020 corrections) of all 1,728 compositions | every search (`cache_path` in the configs), `rankings/compute_rankings.py` |
+| `rdos_bandpass_RE_U.csv` | the band-pass `r_DOS` of every composition, computed from the DFT DOS with `mcts_framework.intermetallic.dos_bandpass` | every search (`doscar_data_path`), rankings |
+| `projected_DOS.h5` | DFT total and element-projected DOS of the lanthanide compounds (`runs/RE_f_core`) and of the uranium compounds (`runs/U_f_core`) | `gp/export_gp_data.py`, `review/reward_sensitivity.py` |
+| `u_doscar_list.csv` | DOSCAR paths of the uranium compounds (f in valence) | same |
+| `formation_energy_parity_dft_vs_mace.csv` | DFT and MACE formation energies of every composition | `gp/export_gp_data.py`, `review/hull_check.py` |
+| `mp_thermo_docs.jsonl` | the Materials Project thermo documents of every R–M–X system (one line per chemical system) | `review/hull_check.py` |
+| `mace_cache_mixed_hull.csv` | the MACE cache of the earlier study with the mixed r²SCAN/GGA hull | `review/hull_check.py` (hull comparison, SI) |
+| `experimental_compounds.txt` | the RM6X6 compounds reported in the literature (included) | tables, `collect_numbers.py` |
+| `three_RE_candidates_bands_DOS.pdf`, `three_U_candidates_bands_DOS.pdf` | band structures supplied as PDFs | `gp/export_bands.py` |
+| `mat_Sn6Tb1Cu6_sg191.cif` | the TbCu6Sn6 prototype used to start the lanthanide-uranium search (included) | `generate_study.py` |
+
+The search configurations also use `examples/mat_Pb6U1W6_sg191.cif` from the
+repository for the uranium space.
+
+## Steps
+
+All Python steps need the packages of the `[intermetallic]` extra plus
+`pandas`, `scipy`, `h5py` and `pyyaml`; `review/hull_check.py` and
+`review/stability_checks.py` need `pymatgen`; `review/baselines.py` needs
+`scikit-learn`. Set `PY` to a Python with these packages (default `python3`).
+
+1. **Reference rankings** (`rankings/u_only_ranking.csv`, `full_ranking.csv`):
+   `$PY rankings/compute_rankings.py`. `E_THRES` at the top of the file is the
+   stability threshold of the manuscript (0.054 eV/atom).
+2. **Search configurations.** `generate_study.py grid --c 0.3 --rep-budget 0.5`
+   writes the 15 uranium starting compounds (`grid_starting_materials.json`)
+   and the representative searches; `generate_study.py full --c 0.3` writes
+   the 15 lanthanide starting compounds and the lanthanide-uranium searches;
+   `generate_variants.py <names>` writes the search-settings sweep of
+   Supplementary Table S4 (`x8_d1n1_a05_term` is the setting used in the
+   manuscript). Each call writes a run list (`run_list_*.txt`).
+3. **Searches.** From this directory, `sbatch run_study.sbatch <run list>`
+   runs every configuration of the list with 100 concurrent `mcts-run`
+   processes (about 45 s per uranium search, a few minutes per lanthanide
+   search, all from cached data). Finished runs are skipped on resubmission.
+4. **Other search strategies** (Fig. 6, Table S3): from `review/`,
+   `sbatch baselines.sbatch` (about an hour for the lanthanide-uranium space).
+5. **Metrics and tables.** `./run_analysis.sh` runs, in order,
+   `analyze_runs.py`, `analyze_budget.py`, `gp/export_gp_data.py`,
+   `gp/export_run_data.py`, `make_tables.py`, `collect_numbers.py`,
+   `review/stability_checks.py` and `review/reward_sensitivity.py`, and
+   reports each step's exit status. Then `review/mcts_metrics.py`,
+   `review/compare_methods.py` and `review/variants_compare.py` score the
+   searches against the other strategies, and `fig8_pw.py` writes the
+   convergence curves of Fig. 11 from the settings-sweep runs.
+   `collect_numbers.py` writes `tables/numbers_v3.json`, which holds every
+   number quoted in the text.
+6. **Figures.** `gp/label_layout.py`, then `gnuplot <script>` for each
+   script in `gp/` (gnuplot 6, pdfcairo). `FIG6_RUN=u_only FIG6_SUFFIX=_1x3
+   FIG6_RING=1.7 FIG6_GAP=0.3 $PY gp/export_run_data.py representative`
+   lays out the tree of Fig. 5.
+
+## What produces what
+
+| Manuscript item | Script(s) |
+|---|---|
+| Tables 1, 2; Figs. 4, 5, 7 | `gp/export_run_data.py representative`, `gp/label_layout.py`, `gp/fig4_scatter_u.gp`, `gp/fig6_radial_1x3.gp`, `gp/fig9_scatter_full.gp` |
+| Fig. 3, Figs. 8–10, S1–S3, S5 | `gp/export_gp_data.py`, `gp/fig3_reward.gp`, `gp/dos_candidates.gp`, `gp/dos_trends.gp`, `gp/bandpass_response.gp`, `gp/dos_heatmap.gp`, `gp/dos_by_tm.gp`, `gp/parity.gp` |
+| Fig. 9, S4 (bands) | `gp/export_bands.py`, `gp/bands_stacked.gp` |
+| Fig. 6, Table S3 | `review/baselines.py`, `review/mcts_metrics.py`, `review/variants_compare.py`, `gp/export_review_data.py`, `gp/benchmark.gp` |
+| Fig. 11 | `fig8_pw.py`, `gp/fig8b_convergence.gp` |
+| Table S1, Sec. A.6–A.7 | `review/hull_check.py`, `review/stability_checks.py` |
+| Table S2 | `review/reward_sensitivity.py` |
+| Table S4 | `generate_variants.py`, `review/variants_compare.py` |
+| Tables S5, S6 | `make_tables.py` |
+
+Run directories (`representative/`, `full/`, `grid/`, `variants/`), run lists,
+logs and generated tables are ignored by git.
